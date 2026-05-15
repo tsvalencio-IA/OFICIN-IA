@@ -214,7 +214,7 @@
     const key = item?.id || item?.uid || item?.codigo || item?.desc || item?.descricao || '';
     const mapa = os?.execucaoItens || os?.execucoesItens || {};
     const exec = item?.execucao || item?.statusExecucao || item?.execStatus || (key && mapa[key]) || null;
-    const status = typeof exec === 'object' ? (exec.status || exec.situacao || '') : exec;
+    const status = exec && typeof exec === 'object' ? (exec.status || exec.situacao || '') : exec;
     return status ? String(status) : 'sem execucao registrada';
   }
 
@@ -264,7 +264,14 @@
   }
 
   function iaFallback(pergunta, perfil, erro) {
-    const ctx = iaBuildContext(perfil, pergunta);
+    let ctx = '';
+    try {
+      ctx = iaBuildContext(perfil, pergunta);
+    } catch (e) {
+      console.warn('[thIAguinho IA fallback]', e);
+      const msgErro = erro || e?.message || 'falha ao montar contexto local';
+      return `API indisponivel (${htmlEscape(msgErro)}). Resposta local: houve uma falha ao cruzar os dados carregados, mas nao vou travar o chat. Revise se ha O.S., estoque e financeiro sincronizados no painel.`;
+    }
     const achouOS = !/Nenhuma O\.S\./.test(ctx);
     const intro = erro ? `API indisponivel (${htmlEscape(erro)}). Resposta local com dados carregados:<br>` : 'Resposta local com dados carregados:<br>';
     if (!achouOS) {
@@ -312,6 +319,15 @@
     inp.value = '';
     iaAddUser(msg);
     const lid = iaAddBot('<span class="j-spinner"></span> Analisando contexto real...');
+    try {
+      const local = typeof window.thiaResponderLocal === 'function' ? window.thiaResponderLocal(msg) : null;
+      if (local) {
+        iaReplaceBot(lid, local);
+        return;
+      }
+    } catch (e) {
+      console.warn('[thIAguinho IA local]', e);
+    }
     const key = window.J?.gemini || window.J?.oficina?.apiKeys?.gemini || sessionStorage.getItem('j_gemini') || '';
     if (!key) {
       iaReplaceBot(lid, iaFallback(msg, perfil, 'chave Gemini nao configurada'));

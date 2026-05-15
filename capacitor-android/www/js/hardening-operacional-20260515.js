@@ -406,7 +406,22 @@
     byId('fdObs').value = n.obsConferencia || n.observacao || '';
     byId('fdStatus').value = n.statusConferencia || 'Pendente';
     byId('fdFornecedor').innerHTML = '<option value="">Fornecedor XML/snapshot</option>' + (J().fornecedores || []).map(f => `<option value="${esc(f.id)}" ${n.fornecedorId===f.id?'selected':''}>${esc(f.nome || f.razaoSocial || f.id)}</option>`).join('');
-    byId('fdResumoItens').innerHTML = `<b>Itens:</b><br>${(n.itens || []).slice(0,30).map(i => `- ${esc(i.codigoFornecedor || i.codigo || '')} ${esc(i.descricao || i.desc || '')} x${esc(i.quantidade || i.qtd || 1)}`).join('<br>')}`;
+    const vinculos = (J().nfItensVinculos || []).filter(v => v.nfId === id || (n.chave && v.chave === n.chave) || (n.numero && v.nfNumero === n.numero));
+    const fins = (J().financeiro || []).filter(f => f.notaFiscalId === id || f.nfId === id || (n.chave && f.chaveNFe === n.chave) || (n.numero && String(f.desc || '').includes('NF ' + n.numero)));
+    byId('fdResumoItens').innerHTML = `
+      <div style="border:1px solid var(--border);border-radius:4px;padding:10px;margin:8px 0;background:var(--surf2);">
+        <b>Espelho fiscal bloqueado para edicao livre</b><br>
+        Chave: ${esc(n.chave || '-')}<br>
+        Serie: ${esc(n.serie || '-')} | Natureza: ${esc(n.natureza || '-')} | Total NF: ${moeda(n.totalNF || n.totalItens || 0)}<br>
+        A nota XML deve ser preservada. Edite apenas conferencia, vinculos internos, estoque e financeiro com auditoria.
+      </div>
+      <div class="op-table-wrap" style="margin-top:8px;"><table class="op-table"><thead><tr><th>Codigo</th><th>Descricao</th><th>NCM/CFOP/CEST</th><th>Qtd</th><th>Custo</th><th>Destino</th></tr></thead><tbody>
+        ${(n.itens || []).slice(0,80).map(i => `<tr><td>${esc(i.codigoFornecedor || i.codigo || '')}<br><small>${esc(i.codigoComercial || i.oem || '')}</small></td><td>${esc(i.descricao || i.desc || '')}<br><small>${esc(i.marca || '')}</small></td><td>${esc(i.ncm || '-')} / ${esc(i.cfop || '-')} / ${esc(i.cest || '-')}</td><td>${esc(i.quantidade || i.qtd || 1)}</td><td>${moeda(i.valorUnitario || i.custo || 0)}</td><td>${esc(i.destino || i.finalidade || 'estoque')} ${esc(i.placa || i.vinculo || '')}</td></tr>`).join('') || '<tr><td colspan="6">Sem itens registrados.</td></tr>'}
+      </tbody></table></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
+        <div style="border:1px solid var(--border);border-radius:4px;padding:10px;background:var(--surf2);"><b>Vinculos / baixas</b><br>${vinculos.slice(0,40).map(v=>`- ${esc(v.codigoFornecedor || v.codigo || '')} ${esc(v.desc || '')} | ${esc(v.placa || '-')} ${v.osId ? 'OS #' + esc(String(v.osId).slice(-6).toUpperCase()) : ''} | baixa: ${v.estoqueBaixadoAutomatico?'sim':'nao'}`).join('<br>') || 'Nenhum vinculo registrado.'}</div>
+        <div style="border:1px solid var(--border);border-radius:4px;padding:10px;background:var(--surf2);"><b>Financeiro da NF</b><br>${fins.slice(0,40).map(f=>`- ${esc(f.desc || f.id)} | ${moeda(f.valor || 0)} | ${esc(f.venc || '')} | ${esc(f.status || '')}${f.pacoteBoletoNumero ? ' | pacote ' + esc(f.pacoteBoletoNumero) : ''}`).join('<br>') || 'Nenhum lancamento vinculado.'}</div>
+      </div>`;
     W.abrirModal?.('modalFiscalDocHardening');
   };
   W.salvarDocFiscalHardening = async function () {
@@ -425,13 +440,15 @@
     p.className = 'op-card';
     p.innerHTML = `
       <div class="op-title">PACOTES DE BOLETOS / DUPLICATAS DE FORNECEDOR</div>
-      <div style="display:grid;grid-template-columns:minmax(180px,1fr) 140px 140px auto;gap:8px;align-items:end;margin-bottom:8px;">
+      <div style="display:grid;grid-template-columns:minmax(180px,1fr) 140px 140px auto auto;gap:8px;align-items:end;margin-bottom:8px;">
         <div class="form-group"><label class="j-label">Fornecedor</label><select class="j-select" id="pkgFornecedor"></select></div>
         <div class="form-group"><label class="j-label">Inicio</label><input type="date" class="j-input" id="pkgInicio"></div>
         <div class="form-group"><label class="j-label">Fim</label><input type="date" class="j-input" id="pkgFim"></div>
+        <button class="btn-outline" onclick="window.previewPacoteBoletosHardening()">PREVISUALIZAR</button>
         <button class="btn-primary" onclick="window.criarPacoteBoletosHardening()">CRIAR PACOTE</button>
       </div>
-      <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Pacote</th><th>Fornecedor</th><th>Periodo</th><th>Titulos</th><th>Total</th><th>Status</th></tr></thead><tbody id="tbPacotesBoletos"></tbody></table></div>`;
+      <div id="pkgPreview" style="display:none;border:1px solid var(--border);background:var(--surf2);border-radius:4px;padding:10px;margin-bottom:8px;font-size:.72rem;"></div>
+      <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Pacote</th><th>Fornecedor</th><th>Periodo</th><th>Titulos</th><th>Total</th><th>Status</th><th>Acoes</th></tr></thead><tbody id="tbPacotesBoletos"></tbody></table></div>`;
     sec.prepend(p);
     setTimeout(renderPacotesBoletos, 100);
   }
@@ -440,14 +457,47 @@
     if (sel) sel.innerHTML = '<option value="">Todos fornecedores</option>' + (J().fornecedores || []).map(f => `<option value="${esc(f.id)}">${esc(f.nome || f.razaoSocial || f.id)}</option>`).join('');
     const tb = byId('tbPacotesBoletos');
     if (!tb) return;
-    tb.innerHTML = (J().pacotesBoletos || []).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).map(p => `<tr><td><b>${esc(p.numero || String(p.id||'').slice(-6).toUpperCase())}</b></td><td>${esc(p.fornecedorNome || p.fornecedorId || '-')}</td><td>${esc(p.inicio || '-')} a ${esc(p.fim || '-')}</td><td>${(p.titulos || []).length}</td><td>${moeda(p.total || 0)}</td><td><span class="op-chip ${p.status==='Fechado'?'ok':'warn'}">${esc(p.status || 'Aberto')}</span></td></tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px;">Nenhum pacote criado.</td></tr>';
+    tb.innerHTML = (J().pacotesBoletos || []).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).map(p => {
+      const fechado = /fechado|pago|baixado/i.test(String(p.status || ''));
+      return `<tr><td><b>${esc(p.numero || String(p.id||'').slice(-6).toUpperCase())}</b></td><td>${esc(p.fornecedorNome || p.fornecedorId || '-')}</td><td>${esc(p.inicio || '-')} a ${esc(p.fim || '-')}</td><td>${(p.titulos || []).length}</td><td>${moeda(p.total || 0)}</td><td><span class="op-chip ${fechado?'ok':'warn'}">${esc(p.status || 'Aberto')}</span></td><td><button class="btn-ghost" onclick="window.verTitulosPacoteBoletos('${esc(p.id)}')">VER</button>${fechado?'':`<button class="btn-outline" onclick="window.baixarPacoteBoletosHardening('${esc(p.id)}')" style="margin-left:4px;">BAIXAR</button>`}</td></tr>`;
+    }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Nenhum pacote criado.</td></tr>';
   }
+  function titulosElegiveisPacote() {
+    const fornecedorId = byId('pkgFornecedor')?.value || '';
+    const ini = byId('pkgInicio')?.value || todayISO();
+    const fim = byId('pkgFim')?.value || ini;
+    return (J().financeiro || []).filter(f => {
+      const isSaida = /saida|despesa|pagar/.test(norm(f.tipo || ''));
+      const status = norm(f.status);
+      const venc = String(f.venc || f.vencimento || '').slice(0,10);
+      const boleto = /(boleto|duplicata|nf|fornecedor|parcelado)/i.test([f.pgto,f.desc,f.categoria,f.origem].join(' '));
+      const fornOk = !fornecedorId || f.fornecedorId === fornecedorId || String(f.vinculo || '') === 'F_' + fornecedorId;
+      return isSaida && boleto && fornOk && venc >= ini && venc <= fim && !/pago|liquidado|cancelado/.test(status) && !f.pacoteBoletoId;
+    });
+  }
+  W.previewPacoteBoletosHardening = function () {
+    const box = byId('pkgPreview');
+    if (!box) return;
+    const lista = titulosElegiveisPacote();
+    box.style.display = 'block';
+    const total = lista.reduce((s,f)=>s+num(f.valor),0);
+    box.innerHTML = `<b>${lista.length} titulo(s) elegivel(is) - ${moeda(total)}</b><br>` +
+      (lista.length ? lista.slice(0,40).map(f=>`- ${esc(f.desc || f.id)} | venc. ${esc(f.venc || f.vencimento || '-')} | ${moeda(f.valor || 0)}`).join('<br>') : 'Nenhum boleto/duplicata aberto nesse periodo ou todos ja estao em pacote.');
+  };
+  W.verTitulosPacoteBoletos = function (id) {
+    const p = (J().pacotesBoletos || []).find(x => x.id === id);
+    const box = byId('pkgPreview');
+    if (!p || !box) return;
+    box.style.display = 'block';
+    box.innerHTML = `<b>${esc(p.numero || p.id)} - ${esc(p.status || 'Aberto')} - ${moeda(p.total || 0)}</b><br>` +
+      ((p.titulos || []).map(t => `- ${esc(t.desc || t.id)} | venc. ${esc(t.venc || '-')} | ${moeda(t.valor || 0)}`).join('<br>') || 'Sem titulos no pacote.');
+  };
   W.criarPacoteBoletosHardening = async function () {
     const fornecedorId = byId('pkgFornecedor')?.value || '';
     const ini = byId('pkgInicio')?.value || todayISO();
     const fim = byId('pkgFim')?.value || ini;
     const aberto = (J().financeiro || []).filter(f => {
-      const isSaida = /saida|saída/i.test(String(f.tipo || ''));
+      const isSaida = /saida|despesa|pagar/.test(norm(f.tipo || ''));
       const status = norm(f.status);
       const venc = String(f.venc || f.vencimento || '').slice(0,10);
       const boleto = /(boleto|duplicata|nf|fornecedor|parcelado)/i.test([f.pgto,f.desc,f.categoria,f.origem].join(' '));
@@ -464,6 +514,20 @@
     aberto.forEach(f => batch.update(db().collection('financeiro').doc(f.id), { pacoteBoletoId:ref.id, pacoteBoletoNumero:numero, updatedAt:new Date().toISOString() }));
     await batch.commit();
     toast(`Pacote ${numero} criado com ${aberto.length} titulo(s).`, 'ok');
+  };
+  W.baixarPacoteBoletosHardening = async function (id) {
+    const p = (J().pacotesBoletos || []).find(x => x.id === id);
+    if (!p || !db()) return;
+    const forma = prompt('Forma de pagamento da baixa do pacote:', 'PIX') || 'PIX';
+    const dataBaixa = prompt('Data da baixa (YYYY-MM-DD):', todayISO()) || todayISO();
+    const motivo = prompt('Observacao/comprovante da baixa:', 'Baixa de pacote de boletos') || 'Baixa de pacote de boletos';
+    const batch = db().batch();
+    (p.titulos || []).forEach(t => {
+      if (t.id) batch.update(db().collection('financeiro').doc(t.id), { status:'Pago', pgto:forma, dataBaixa, baixaPacoteEm:new Date().toISOString(), baixaPacotePor:J().nome || 'Sistema', baixaPacoteObs:motivo, updatedAt:new Date().toISOString() });
+    });
+    batch.update(db().collection('pacotes_boletos').doc(id), { status:'Fechado', formaBaixa:forma, dataBaixa, obsBaixa:motivo, fechadoEm:new Date().toISOString(), fechadoPor:J().nome || 'Sistema', updatedAt:new Date().toISOString() });
+    await batch.commit();
+    toast(`Pacote ${p.numero || id} baixado e titulos marcados como pagos.`, 'ok');
   };
 
   function overrideEstoqueFornecedores() {

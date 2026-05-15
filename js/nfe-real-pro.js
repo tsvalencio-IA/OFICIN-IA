@@ -367,8 +367,78 @@
       Natureza: <b>${esc(nfe.natureza)}</b> · Protocolo: <b>${esc(nfe.protocolo)}</b> · Status: <b>${esc(nfe.statusAutorizacao)} ${esc(nfe.motivoAutorizacao)}</b><br>
       Produtos: <b>R$ ${fmtBR(nfe.totais.vProd)}</b> · Desc.: <b>R$ ${fmtBR(nfe.totais.vDesc)}</b> · IPI: <b>R$ ${fmtBR(nfe.totais.vIPI)}</b> · Total NF: <b>R$ ${fmtBR(nfe.totais.vNF)}</b>`;
   }
+  function cnpjFornecedorNF(nfe){
+    return onlyDigits(nfe?.fornecedor?.cnpj || nfe?.fornecedorCNPJ || nfe?.cnpj || '');
+  }
+  async function buscarNFeDuplicada(nfe){
+    if(!W.db || !W.J?.tid || !nfe) return null;
+    const cols = ['notas_fiscais_entrada','notasFiscaisEntrada','nfe_entradas'];
+    const chave = String(nfe.chave || '').trim();
+    const numero = String(nfe.numero || '').trim();
+    const serie = String(nfe.serie || '').trim();
+    const cnpj = cnpjFornecedorNF(nfe);
+    for(const col of cols){
+      try{
+        if(chave){
+          const snap = await W.db.collection(col).where('tenantId','==',W.J.tid).where('chave','==',chave).limit(3).get();
+          if(!snap.empty) return { collection:col, id:snap.docs[0].id, data:snap.docs[0].data(), motivo:'chave' };
+        }
+      }catch(e){ console.warn('[NFe PRO dup chave]', col, e.message); }
+      try{
+        if(numero){
+          const snap = await W.db.collection(col).where('tenantId','==',W.J.tid).where('numero','==',numero).limit(10).get();
+          const found = snap.docs.find(d => {
+            const x = d.data() || {};
+            const xSerie = String(x.serie || '').trim();
+            const xCnpj = onlyDigits(x.fornecedorSnapshot?.cnpj || x.fornecedorCNPJ || x.cnpj || '');
+            const mesmaSerie = !serie || !xSerie || xSerie === serie;
+            const mesmoCnpj = !cnpj || !xCnpj || xCnpj === cnpj;
+            return mesmaSerie && mesmoCnpj;
+          });
+          if(found) return { collection:col, id:found.id, data:found.data(), motivo:'numero_serie_cnpj' };
+        }
+      }catch(e){ console.warn('[NFe PRO dup numero]', col, e.message); }
+    }
+    return null;
+  }
+  function limparTelaNFeDuplicada(){
+    W._nfeProData = null;
+    if($('containerItensNF')) $('containerItensNF').innerHTML = '';
+    if($('nfTotal')) $('nfTotal').textContent = '0,00';
+    renderParcels([]);
+  }
+  function mostrarNFeDuplicada(nfe, dup){
+    limparTelaNFeDuplicada();
+    renderFiscalResumo(nfe);
+    let box = $('nfDuplicadaAviso');
+    if(!box){
+      box = D.createElement('div');
+      box.id = 'nfDuplicadaAviso';
+      box.style.cssText = 'border:1px solid rgba(255,184,0,.45);background:rgba(255,184,0,.08);border-radius:4px;padding:12px;margin:10px 0;font-family:var(--fm);font-size:.72rem;line-height:1.55;color:var(--warn);';
+      $('containerItensNF')?.parentElement?.insertAdjacentElement('beforebegin', box);
+    }
+    const d = dup?.data || {};
+    const fornecedor = d.fornecedorSnapshot?.nome || d.fornecedorNome || nfe?.fornecedor?.nome || 'Fornecedor';
+    box.style.display = 'block';
+    box.innerHTML = `
+      <b>NF-E JA IMPORTADA - REIMPORTACAO BLOQUEADA</b><br>
+      NF ${esc(nfe?.numero || d.numero || '-')} / Serie ${esc(nfe?.serie || d.serie || '-')} - ${esc(fornecedor)}<br>
+      Chave: <b>${esc(nfe?.chave || d.chave || '-')}</b><br>
+      Importada em: ${esc((d.createdAt || d.dataNF || '').slice(0,10) || 'data nao registrada')} - Colecao: ${esc(dup?.collection || '-')} - Motivo: ${esc(dup?.motivo || 'duplicidade')}<br>
+      <button type="button" class="btn-outline" style="margin-top:8px;" onclick="window.abrirNFeDuplicadaExistente('${esc(dup?.collection || '')}','${esc(dup?.id || '')}')">ABRIR NOTA EXISTENTE</button>`;
+    if(typeof W.toast === 'function') W.toast(`NF-e ${nfe?.numero || ''} ja importada. Reimportacao bloqueada para nao duplicar estoque/financeiro.`, 'warn');
+  }
+  W.abrirNFeDuplicadaExistente = function(col, id){
+    if(!id) return;
+    if(col === 'notas_fiscais_entrada' && typeof W.editarDocFiscal === 'function'){
+      W.editarDocFiscal(id);
+      return;
+    }
+    if(typeof W.toast === 'function') W.toast('Nota localizada em colecao legada: ' + col + '. Abra pela busca fiscal pelo numero/chave.', 'warn');
+  };
   W.prepNF = function(){
     W._nfeProData = null;
+    const dup = $('nfDuplicadaAviso'); if(dup) { dup.style.display='none'; dup.innerHTML=''; }
     setVal('nfNumero',''); setVal('nfData', isoToday()); setVal('nfVenc','');
     if($('containerItensNF')) $('containerItensNF').innerHTML = '';
     if($('nfTotal')) $('nfTotal').textContent = '0,00';
@@ -381,9 +451,15 @@
   W.lerXMLNFe = function(event){
     const file = event?.target?.files?.[0]; if(!file) return;
     const r = new FileReader();
-    r.onload = function(ev){
+    r.onload = async function(ev){
       try{
         const nfe = parseNFeXML(String(ev.target.result || ''));
+        const duplicada = await buscarNFeDuplicada(nfe);
+        if(duplicada){
+          mostrarNFeDuplicada(nfe, duplicada);
+          return;
+        }
+        const dup = $('nfDuplicadaAviso'); if(dup) { dup.style.display='none'; dup.innerHTML=''; }
         W._nfeProData = nfe;
         setVal('nfNumero', nfe.numero); setVal('nfData', nfe.dataEmissao || isoToday());
         preencherFornecedorTemporario(nfe.fornecedor);
@@ -721,17 +797,12 @@
     const nfe = W._nfeProData || null;
     const batch = W.db.batch();
     const fornecedorId = await ensureFornecedor(batch, nfe);
-    if(nfe?.chave){
-      const dupSnap = await W.db.collection('notas_fiscais_entrada')
-        .where('tenantId','==',W.J.tid)
-        .where('chave','==',nfe.chave)
-        .limit(1)
-        .get();
-      if(!dupSnap.empty){
-        const msg = `NF-e ${nfe.numero || ''} ja importada pela chave ${nfe.chave}. Operacao bloqueada para evitar duplicidade fiscal/financeira.`;
-        if(W.toast) W.toast(msg,'warn'); else alert(msg);
-        return;
-      }
+    const duplicada = await buscarNFeDuplicada(nfe || { numero:getVal('nfNumero'), serie:'', chave:'', fornecedor:{ cnpj:'' } });
+    if(duplicada){
+      const msg = `NF ${getVal('nfNumero') || nfe?.numero || ''} ja importada. Operacao bloqueada para evitar duplicidade fiscal, estoque e financeiro.`;
+      if(W.toast) W.toast(msg,'warn'); else alert(msg);
+      mostrarNFeDuplicada(nfe || { numero:getVal('nfNumero'), serie:'', chave:'' }, duplicada);
+      return;
     }
     const totalItens = Math.round(itens.reduce((s,i)=>s+(Number(i.valorLiquido)||0),0)*100)/100;
     const totalNF = nfe?.totais?.vNF || totalItens;
