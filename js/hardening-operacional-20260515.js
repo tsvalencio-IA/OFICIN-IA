@@ -298,6 +298,93 @@
     if (!arr.length) return '';
     return `<div style="margin-top:8px;"><strong class="op-chip ${cls||''}">${esc(title)}</strong><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;margin-top:6px;">${arr.map(it => `<div style="border:1px solid var(--border);background:rgba(255,255,255,.03);border-radius:3px;padding:7px;font-size:.72rem;"><b>${it.codigo ? '[' + esc(it.codigo) + '] ' : ''}${esc(it.desc || it.descricao || '-')}</b>${it.qtd ? `<br><small>Qtd ${esc(it.qtd)}</small>`:''}${it.nf || it.nfNumero ? `<br><small>NF ${esc(it.nf || it.nfNumero)} - ${esc(it.fornecedor || '')}</small>`:''}</div>`).join('')}</div></div>`;
   }
+  function codigoPecaNormalizado(v) {
+    return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+  function termoPareceCodigoPeca(termoRaw) {
+    const c = codigoPecaNormalizado(termoRaw);
+    return c.length >= 4 && /[0-9]/.test(c) && !/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(c);
+  }
+  function itemTemCodigoPeca(item, codigo) {
+    const campos = [item?.codigo, item?.codigoFornecedor, item?.codigoComercial, item?.oem, item?.ean, item?.codigoOEM];
+    return campos.some(v => {
+      const c = codigoPecaNormalizado(v);
+      return c && (c === codigo || c.includes(codigo) || codigo.includes(c));
+    });
+  }
+  function renderRastreioPecaCodigo(codigo, termoRaw, placaFiltro) {
+    const rows = [];
+    const seen = new Set();
+    const add = (origem, data) => {
+      const placa = placaNorm(data.placa || '');
+      if (placaFiltro && !(placa === placaFiltro || placa.includes(placaFiltro))) return;
+      const key = [origem, data.osId || '', data.nfId || '', data.nfNumero || '', data.codigo || '', data.placa || ''].join('|');
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push({ origem, ...data });
+    };
+    (J().nfItensVinculos || []).forEach(v => {
+      if (!itemTemCodigoPeca(v, codigo)) return;
+      const os = (J().os || []).find(o => o.id === v.osId) || {};
+      const veic = veiculoByOS(os);
+      const cli = (J().clientes || []).find(c => c.id === (os.clienteId || veic.clienteId)) || {};
+      add('NF/VINCULO', {
+        codigo: v.codigoFornecedor || v.codigo || v.codigoComercial || termoRaw,
+        desc: v.desc || v.descricao || '',
+        marca: v.marca || '',
+        placa: v.placa || os.placa || veic.placa || '',
+        prefixo: veic.prefixo || os.prefixo || '',
+        veiculo: veic.modelo || os.veiculo || os.modelo || '',
+        cliente: cli.nome || os.cliente || '',
+        osId: v.osId || '',
+        nfId: v.nfId || '',
+        nfNumero: v.nfNumero || '',
+        fornecedor: v.fornecedorNome || v.fornecedor || '',
+        dataCompra: v.dataCompra || v.dataNF || v.createdAt || '',
+        qtd: v.qtd || v.quantidade || 1,
+        baixa: v.estoqueBaixadoAutomatico,
+        custo: v.custo || v.valorUnitario || 0
+      });
+    });
+    (J().os || []).forEach(os => {
+      const veic = veiculoByOS(os);
+      const cli = (J().clientes || []).find(c => c.id === (os.clienteId || veic.clienteId)) || {};
+      (Array.isArray(os.pecasReais) ? os.pecasReais : []).forEach(p => {
+        if (!itemTemCodigoPeca(p, codigo)) return;
+        add('OS/PECAS REAIS', {
+          codigo: p.codigoFornecedor || p.codigo || p.codigoComercial || p.oem || termoRaw,
+          desc: p.desc || p.descricao || '',
+          marca: p.marca || '',
+          placa: os.placa || veic.placa || p.placa || '',
+          prefixo: veic.prefixo || os.prefixo || '',
+          veiculo: veic.modelo || os.veiculo || os.modelo || '',
+          cliente: cli.nome || os.cliente || '',
+          osId: os.id || '',
+          nfId: p.nfId || '',
+          nfNumero: p.nfNumero || p.nf || p.notaFiscal || '',
+          fornecedor: p.fornecedor || p.fornecedorNome || '',
+          dataCompra: p.dataCompra || p.dataNF || '',
+          qtd: p.qtd || p.quantidade || 1,
+          baixa: p.estoqueBaixadoAutomatico,
+          custo: p.custo || p.valorUnitario || 0
+        });
+      });
+    });
+    if (!rows.length) {
+      return `<div style="color:var(--muted);font-family:var(--fm);font-size:.8rem;padding:10px 0;">Nenhum uso interno encontrado para o codigo ${esc(termoRaw)}.</div>`;
+    }
+    rows.sort((a,b)=>String(b.dataCompra||'').localeCompare(String(a.dataCompra||'')));
+    return `<div style="font-family:var(--fm);font-size:.65rem;color:var(--muted);margin-bottom:8px;">${rows.length} uso(s) encontrado(s) para o codigo <b>${esc(termoRaw)}</b>. Exibindo somente a peça pesquisada.</div>
+      <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Codigo / peça</th><th>Usado em</th><th>O.S.</th><th>NF / fornecedor</th><th>Compra</th><th>Qtd / baixa</th></tr></thead><tbody>
+      ${rows.map(r => `<tr>
+        <td><b>${esc(r.codigo || termoRaw)}</b><br>${esc(r.desc || '-')}<br><small>${esc(r.marca || '')}</small></td>
+        <td><b>${esc(r.placa || '-')}</b> ${r.prefixo ? '<span class="op-chip">'+esc(r.prefixo)+'</span>' : ''}<br>${esc(r.veiculo || '-')}<br><small>${esc(r.cliente || '')}</small></td>
+        <td>${r.osId ? `<button class="btn-ghost" onclick="window.editarOS && window.editarOS('${esc(r.osId)}')">OS #${esc(String(r.osId).slice(-6).toUpperCase())}</button>` : '-'}</td>
+        <td>NF ${esc(r.nfNumero || '-')}<br><small>${esc(r.fornecedor || '-')}</small></td>
+        <td>${esc(String(r.dataCompra || '-').slice(0,10))}<br><small>${esc(r.origem || '')}</small></td>
+        <td>${esc(r.qtd || 1)}<br><small>${r.baixa ? 'baixado automaticamente' : 'sem baixa automatica registrada'}</small></td>
+      </tr>`).join('')}</tbody></table></div>`;
+  }
   function overrideHistoricoOS() {
     W.buscarHistoricoOS = function (opts = {}) {
       const placaId = opts.placaId || 'histBuscaPlaca';
@@ -309,6 +396,10 @@
       const el = byId(resultadoId);
       if (!el) return;
       if (!placa && !termo) { el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;">Digite placa e/ou peca/servico.</div>'; return; }
+      if (secret177() && termoRaw && termoPareceCodigoPeca(termoRaw)) {
+        el.innerHTML = renderRastreioPecaCodigo(codigoPecaNormalizado(termoRaw), termoRaw, placa);
+        return;
+      }
       const hits = (J().os || []).filter(o => {
         const v = veiculoByOS(o);
         const p = placaNorm(o.placa || v.placa || '');
