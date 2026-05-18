@@ -312,6 +312,29 @@
       return c && (c === codigo || c.includes(codigo) || codigo.includes(c));
     });
   }
+  function dataISO(v) {
+    return String(v || '').slice(0, 10);
+  }
+  function dentroPeriodo(data, ini, fim) {
+    const d = dataISO(data);
+    if (!d) return true;
+    if (ini && d < ini) return false;
+    if (fim && d > fim) return false;
+    return true;
+  }
+  function ensureKardexPeriodControls(opts) {
+    const termoEl = byId(opts?.termoId || 'histBuscaTermo');
+    if (!termoEl || byId('kardexPeriodoWrap')) return;
+    const wrap = D.createElement('div');
+    wrap.id = 'kardexPeriodoWrap';
+    wrap.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;align-items:end;';
+    wrap.innerHTML = `
+      <div class="form-group" style="min-width:150px;"><label class="j-label">Periodo inicial</label><input type="date" class="j-input" id="kardexDataIni"></div>
+      <div class="form-group" style="min-width:150px;"><label class="j-label">Periodo final</label><input type="date" class="j-input" id="kardexDataFim"></div>
+      <span style="font-family:var(--fm);font-size:.62rem;color:var(--muted);padding-bottom:10px;">Opcional para rastrear Kardex da peca.</span>`;
+    const host = termoEl.closest('.op-card') || termoEl.parentElement;
+    host?.appendChild(wrap);
+  }
   function renderRastreioPecaCodigo(codigo, termoRaw, placaFiltro) {
     const rows = [];
     const seen = new Set();
@@ -385,11 +408,122 @@
         <td>${esc(r.qtd || 1)}<br><small>${r.baixa ? 'baixado automaticamente' : 'sem baixa automatica registrada'}</small></td>
       </tr>`).join('')}</tbody></table></div>`;
   }
+  function renderKardexPecaCodigo(codigo, termoRaw, placaFiltro) {
+    const ini = byId('kardexDataIni')?.value || '';
+    const fim = byId('kardexDataFim')?.value || '';
+    const rows = [];
+    const seen = new Map();
+    const add = (tipo, origem, data) => {
+      const placa = placaNorm(data.placa || '');
+      if (placaFiltro && !(placa === placaFiltro || placa.includes(placaFiltro))) return;
+      if (!dentroPeriodo(data.dataMov || data.dataCompra || data.createdAt, ini, fim)) return;
+      const key = [tipo, data.osId || '', data.nfId || '', data.nfNumero || '', codigoPecaNormalizado(data.codigo || termoRaw), placa, dataISO(data.dataMov || data.dataCompra || data.createdAt), norm(data.desc || '')].join('|');
+      if (seen.has(key)) {
+        const old = seen.get(key);
+        old.origens = Array.from(new Set([...(old.origens || [old.origem]), origem].filter(Boolean)));
+        old.qtd = Math.max(num(old.qtd || 0), num(data.qtd || 0)) || old.qtd || data.qtd || 1;
+        return;
+      }
+      const row = { tipo, origem, origens:[origem], ...data };
+      seen.set(key, row);
+      rows.push(row);
+    };
+    (J().notasFiscaisEntrada || []).forEach(n => {
+      (Array.isArray(n.itens) ? n.itens : []).forEach(i => {
+        if (!itemTemCodigoPeca(i, codigo)) return;
+        add('ENTRADA', 'NF', {
+          codigo: i.codigoFornecedor || i.codigo || i.codigoComercial || termoRaw,
+          desc: i.descricao || i.desc || '',
+          marca: i.marca || '',
+          placa: i.placa || '',
+          prefixo: '',
+          veiculo: 'Estoque / entrada fiscal',
+          cliente: '',
+          osId: i.osId || '',
+          nfId: n.id || '',
+          nfNumero: n.numero || i.nfNumero || '',
+          fornecedor: n.fornecedorSnapshot?.nome || n.fornecedorNome || i.fornecedor || '',
+          dataCompra: n.dataNF || n.dataEmissao || n.createdAt || '',
+          dataMov: n.dataNF || n.dataEmissao || n.createdAt || '',
+          qtd: i.quantidade || i.qtd || 1,
+          baixa: false,
+          custo: i.valorUnitario || i.custo || 0
+        });
+      });
+    });
+    (J().nfItensVinculos || []).forEach(v => {
+      if (!itemTemCodigoPeca(v, codigo)) return;
+      const os = (J().os || []).find(o => o.id === v.osId) || {};
+      const veic = veiculoByOS(os);
+      const cli = (J().clientes || []).find(c => c.id === (os.clienteId || veic.clienteId)) || {};
+      add('SAIDA', 'NF/VINCULO OS', {
+        codigo: v.codigoFornecedor || v.codigo || v.codigoComercial || termoRaw,
+        desc: v.desc || v.descricao || '',
+        marca: v.marca || '',
+        placa: v.placa || os.placa || veic.placa || '',
+        prefixo: veic.prefixo || os.prefixo || '',
+        veiculo: veic.modelo || os.veiculo || os.modelo || '',
+        cliente: cli.nome || os.cliente || '',
+        osId: v.osId || '',
+        nfId: v.nfId || '',
+        nfNumero: v.nfNumero || '',
+        fornecedor: v.fornecedorNome || v.fornecedor || '',
+        dataCompra: v.dataCompra || v.dataNF || v.createdAt || '',
+        dataMov: v.dataBaixa || v.vinculadoEm || v.dataCompra || v.dataNF || v.createdAt || '',
+        qtd: v.qtd || v.quantidade || 1,
+        baixa: v.estoqueBaixadoAutomatico,
+        custo: v.custo || v.valorUnitario || 0
+      });
+    });
+    (J().os || []).forEach(os => {
+      const veic = veiculoByOS(os);
+      const cli = (J().clientes || []).find(c => c.id === (os.clienteId || veic.clienteId)) || {};
+      (Array.isArray(os.pecasReais) ? os.pecasReais : []).forEach(p => {
+        if (!itemTemCodigoPeca(p, codigo)) return;
+        add('SAIDA', 'OS/PECAS REAIS', {
+          codigo: p.codigoFornecedor || p.codigo || p.codigoComercial || p.oem || termoRaw,
+          desc: p.desc || p.descricao || '',
+          marca: p.marca || '',
+          placa: os.placa || veic.placa || p.placa || '',
+          prefixo: veic.prefixo || os.prefixo || '',
+          veiculo: veic.modelo || os.veiculo || os.modelo || '',
+          cliente: cli.nome || os.cliente || '',
+          osId: os.id || '',
+          nfId: p.nfId || '',
+          nfNumero: p.nfNumero || p.nf || p.notaFiscal || '',
+          fornecedor: p.fornecedor || p.fornecedorNome || '',
+          dataCompra: p.dataCompra || p.dataNF || '',
+          dataMov: p.dataAplicacao || p.dataCompra || p.dataNF || os.updatedAt || os.createdAt || '',
+          qtd: p.qtd || p.quantidade || 1,
+          baixa: p.estoqueBaixadoAutomatico,
+          custo: p.custo || p.valorUnitario || 0
+        });
+      });
+    });
+    if (!rows.length) {
+      return `<div style="color:var(--muted);font-family:var(--fm);font-size:.8rem;padding:10px 0;">Nenhum movimento encontrado para o codigo ${esc(termoRaw)}.</div>`;
+    }
+    const saldo = rows.reduce((s, r) => s + (r.tipo === 'ENTRADA' ? num(r.qtd || 0) : -num(r.qtd || 0)), 0);
+    rows.sort((a,b)=>String(b.dataMov || b.dataCompra || '').localeCompare(String(a.dataMov || a.dataCompra || '')));
+    return `<div style="font-family:var(--fm);font-size:.65rem;color:var(--muted);margin-bottom:8px;">Kardex interno do codigo <b>${esc(termoRaw)}</b>: ${rows.length} movimento(s). Saldo calculado pelos movimentos carregados: <b>${esc(saldo)}</b>. ${ini || fim ? `Periodo: ${esc(ini || 'inicio')} a ${esc(fim || 'hoje')}.` : 'Periodo: todos.'}</div>
+      <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Movimento</th><th>Codigo / peca</th><th>Veiculo / destino</th><th>O.S.</th><th>NF / fornecedor</th><th>Data</th><th>Qtd / baixa</th></tr></thead><tbody>
+      ${rows.map(r => `<tr>
+        <td><span class="op-chip ${r.tipo === 'ENTRADA' ? 'ok' : 'warn'}">${esc(r.tipo || '-')}</span><br><small>${esc((r.origens || [r.origem]).join(' + '))}</small></td>
+        <td><b>${esc(r.codigo || termoRaw)}</b><br>${esc(r.desc || '-')}<br><small>${esc(r.marca || '')}</small></td>
+        <td><b>${esc(r.placa || '-')}</b> ${r.prefixo ? '<span class="op-chip">'+esc(r.prefixo)+'</span>' : ''}<br>${esc(r.veiculo || '-')}<br><small>${esc(r.cliente || '')}</small></td>
+        <td>${r.osId ? `<button class="btn-ghost" onclick="window.editarOS && window.editarOS('${esc(r.osId)}')">OS #${esc(String(r.osId).slice(-6).toUpperCase())}</button>` : '-'}</td>
+        <td>NF ${esc(r.nfNumero || '-')}<br><small>${esc(r.fornecedor || '-')}</small></td>
+        <td>${esc(String(r.dataMov || r.dataCompra || '-').slice(0,10))}<br><small>compra ${esc(String(r.dataCompra || '-').slice(0,10))}</small></td>
+        <td>${esc(r.qtd || 1)}<br><small>${r.baixa ? 'baixado automaticamente' : 'sem baixa automatica registrada'}</small></td>
+      </tr>`).join('')}</tbody></table></div>`;
+  }
+
   function overrideHistoricoOS() {
     W.buscarHistoricoOS = function (opts = {}) {
       const placaId = opts.placaId || 'histBuscaPlaca';
       const termoId = opts.termoId || 'histBuscaTermo';
       const resultadoId = opts.resultadoId || 'histBuscaResultado';
+      ensureKardexPeriodControls(opts);
       const placa = placaNorm(byId(placaId)?.value || '');
       const termoRaw = byId(termoId)?.value || '';
       const termo = norm(termoRaw);
@@ -397,7 +531,7 @@
       if (!el) return;
       if (!placa && !termo) { el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;">Digite placa e/ou peca/servico.</div>'; return; }
       if (secret177() && termoRaw && termoPareceCodigoPeca(termoRaw)) {
-        el.innerHTML = renderRastreioPecaCodigo(codigoPecaNormalizado(termoRaw), termoRaw, placa);
+        el.innerHTML = renderKardexPecaCodigo(codigoPecaNormalizado(termoRaw), termoRaw, placa);
         return;
       }
       const hits = (J().os || []).filter(o => {
@@ -730,6 +864,34 @@
       if (base) return base;
       const q = norm(pergunta);
       const fin = J().financeiro || [];
+      if (/boleto|conta|titulo|duplicata|venc/.test(q) && /hoje/.test(q)) {
+        const hoje = todayISO();
+        const lista = fin.filter(f => {
+          const venc = String(f.venc || f.vencimento || '').slice(0,10);
+          const status = norm(f.status);
+          const ehBoleto = /(boleto|duplicata|nf|fornecedor|titulo|pagar|receber)/i.test([f.pgto,f.forma,f.desc,f.categoria,f.origem,f.tipo].join(' '));
+          return venc === hoje && ehBoleto && !/pago|liquidado|cancelado/.test(status);
+        });
+        if (!lista.length) return 'Nao ha boleto/duplicata vencendo hoje nos dados carregados deste tenant.';
+        const total = lista.reduce((s,f)=>s+num(f.valor),0);
+        return `Boletos/duplicatas vencendo hoje (${lista.length}) - total ${moeda(total)}:<br>${lista.slice(0,30).map(f=>`- ${esc(f.desc || f.id)} | ${moeda(f.valor)} | ${esc(f.fornecedorNome || f.clienteNome || f.vinculo || '-')} | status ${esc(f.status || 'Aberto')}`).join('<br>')}`;
+      }
+      if (/vencid|atrasad/.test(q) && /boleto|conta|titulo|duplicata|financeiro/.test(q)) {
+        const hoje = todayISO();
+        const lista = fin.filter(f => {
+          const venc = String(f.venc || f.vencimento || '').slice(0,10);
+          const status = norm(f.status);
+          return venc && venc < hoje && !/pago|liquidado|cancelado/.test(status);
+        });
+        if (!lista.length) return 'Nao ha titulo vencido nos dados carregados deste tenant.';
+        const total = lista.reduce((s,f)=>s+num(f.valor),0);
+        return `Titulos vencidos (${lista.length}) - total ${moeda(total)}:<br>${lista.slice(0,30).map(f=>`- ${esc(f.desc || f.id)} | ${moeda(f.valor)} | venc. ${esc(f.venc || f.vencimento || '-')} | ${esc(f.fornecedorNome || f.clienteNome || f.vinculo || '-')}`).join('<br>')}`;
+      }
+      if (/resumo|contexto|dados.*oficina|tenant|oficina/.test(q) && /oficina|tenant|dados|geral|completo|resumo/.test(q)) {
+        const estoqueCritico = (J().estoque || []).filter(p => num(p.qtd) <= num(p.min || p.minimo));
+        const abertas = (J().os || []).filter(o => !/entreg|cancel|recus|finaliz/i.test(String(o.status || '')));
+        return `Resumo local do tenant ${esc(J().tid || '-')}:<br>- O.S. carregadas: ${(J().os || []).length} (${abertas.length} abertas)<br>- Clientes: ${(J().clientes || []).length}<br>- Veiculos: ${(J().veiculos || []).length}<br>- Estoque: ${(J().estoque || []).length} itens (${estoqueCritico.length} criticos)<br>- Financeiro: ${fin.length} lancamentos<br>- NFs: ${(J().notasFiscaisEntrada || []).length}<br>- Vinculos NF/O.S.: ${(J().nfItensVinculos || []).length}<br>- Pacotes de boletos: ${(J().pacotesBoletos || []).length}`;
+      }
       if (/pix|parcel/.test(q)) {
         const suspeitos = fin.filter(f => /pix/i.test(String(f.pgto || f.forma || '')) && (/\(\d+\/\d+\)/.test(String(f.desc || '')) || num(f.pgtoParcelas) > 1));
         if (suspeitos.length) return `Encontrei possivel inconsistencia: recebimento PIX parcelado em ${suspeitos.length} lancamento(s).<br>${suspeitos.slice(0,12).map(f=>`- ${esc(f.desc||'-')} | ${moeda(f.valor)} | ${esc(f.venc||'')}`).join('<br>')}<br><br>Regra correta: PIX/Dinheiro/Debito sempre 1 lancamento pago.`;

@@ -1564,6 +1564,11 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
           </div>
         </div>
       </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <button type="button" class="btn-outline" onclick="window.thiaCopiarLinkClienteCadastro()">COPIAR LINK DO PORTAL</button>
+        <button type="button" class="btn-success" onclick="window.thiaEnviarAcessoClienteCadastro()">ENVIAR LINK AO CLIENTE</button>
+      </div>
+      <small style="display:block;margin-top:7px;color:var(--muted);font-family:var(--fm);font-size:.62rem;">Cliente comum abre cliente.html. Cliente Governo/Oficial abre clienteOficial.html quando o modulo estiver liberado.</small>
     </div>
   </div>
   <div class="modal-foot"><button class="btn-ghost" onclick="fecharModal('modalCliente')">CANCELAR</button><button class="btn-primary" onclick="window.salvarCliente()">SALVAR</button></div>
@@ -2722,6 +2727,69 @@ window._wppAcessoCliente = function(cid) {
     `🔑 PIN: *${c.pin || '—'}*\n\n` +
     `Pelo portal você acompanha suas O.S. e conversa com a equipe.`;
   window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(msg)}`, '_blank');
+};
+
+window.thiaClienteCadastroSnapshot = function() {
+  const id = $('cliId')?.value || '';
+  const salvo = id ? (J.clientes || []).find(x => x.id === id) : null;
+  const tipoCliente = $('cliTipoGov')?.checked ? 'governo' : 'b2c';
+  const nome = ($('cliNome')?.value || salvo?.nome || '').trim();
+  const login = ($('cliLogin')?.value || salvo?.login || nome.split(' ')[0]?.toLowerCase() || '').trim();
+  return Object.assign({}, salvo || {}, {
+    id,
+    nome,
+    wpp: ($('cliWpp')?.value || salvo?.wpp || '').replace(/\D/g, ''),
+    login,
+    pin: ($('cliPin')?.value || salvo?.pin || '').trim(),
+    tipoCliente
+  });
+};
+
+window.thiaLinkClienteCadastro = function() {
+  const c = window.thiaClienteCadastroSnapshot();
+  if (c.tipoCliente === 'governo' && typeof window.thiaModEnabled === 'function' && !window.thiaModEnabled('clienteOficial')) {
+    toast('Cliente Oficial bloqueado para esta oficina pelo Superadmin.', 'warn');
+    return '';
+  }
+  if (typeof window.thiaGetClientePortalUrl === 'function') {
+    return window.thiaGetClientePortalUrl({
+      tenant: J.oficina?.slug || J.oficina?.publicSlug || J.oficina?.oficinaSlug || J.tid || '',
+      cliente: c,
+      login: c.login || ''
+    });
+  }
+  return `https://tsvalencio-ia.github.io/OFICIN-IA/${c.tipoCliente === 'governo' ? 'clienteOficial.html' : 'cliente.html'}?tenant=${encodeURIComponent(J.tid || '')}&login=${encodeURIComponent(c.login || '')}`;
+};
+
+window.thiaCopiarLinkClienteCadastro = async function() {
+  const link = window.thiaLinkClienteCadastro();
+  if (!link) return;
+  try {
+    await navigator.clipboard.writeText(link);
+    toast('Link do portal copiado.', 'ok');
+  } catch (_) {
+    prompt('Copie o link do portal:', link);
+  }
+};
+
+window.thiaEnviarAcessoClienteCadastro = function() {
+  const c = window.thiaClienteCadastroSnapshot();
+  if (!c.nome) { toast('Informe o nome do cliente antes de enviar.', 'warn'); return; }
+  if (!c.login) { toast('Informe ou gere o login do cliente antes de enviar.', 'warn'); return; }
+  if (!c.pin) { toast('Informe ou gere o PIN do cliente antes de enviar.', 'warn'); return; }
+  if (!c.wpp) { toast('Informe o WhatsApp do cliente antes de enviar.', 'warn'); return; }
+  const link = window.thiaLinkClienteCadastro();
+  if (!link) return;
+  const primeiroNome = c.nome.split(' ')[0] || 'cliente';
+  const portal = c.tipoCliente === 'governo' ? 'portal Cliente Oficial' : 'portal do cliente';
+  const msg =
+    `Olá ${primeiroNome}!\n\n` +
+    `Aqui é a *${J.tnome || 'oficina'}*. Seu acesso ao ${portal} está pronto.\n\n` +
+    `Link: ${link}\n` +
+    `Usuário: *${c.login}*\n` +
+    `PIN: *${c.pin}*\n\n` +
+    `Pelo portal você acompanha suas O.S., documentos autorizados e mensagens da oficina.`;
+  window.open(`https://wa.me/55${c.wpp}?text=${encodeURIComponent(msg)}`, '_blank');
 };
 // ═══════════════════════════════════════════════════════════════════════
 // EXCLUSÃO DEFINITIVA — dupla confirmação + auditoria obrigatória

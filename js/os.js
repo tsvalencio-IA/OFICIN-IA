@@ -199,6 +199,18 @@ function montarMensagemStatusClienteOS(os, status, cliente, veiculo) {
   const veiculoTxt = [placa, modelo].filter(Boolean).join(' - ');
   const oficina = window.J?.tnome || 'oficina';
   const portal = montarLinkPortalClienteOS(os, cliente, veiculo);
+  if (status === 'Orcamento_Enviado' || status === 'Orçamento enviado' || status === 'Orcamento enviado') {
+    const total = Number(os.total || os.totalAprovado || 0);
+    return [
+      `Olá ${primeiroNomeClienteOS(cliente)}.`,
+      '',
+      `O orçamento do veículo ${veiculoTxt} referente à O.S. ${idCurto ? '#' + idCurto : ''} está disponível pela ${oficina}.`,
+      total ? `Total do orçamento: ${total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.` : '',
+      `Acesse o portal para conferir e responder: ${portal}`,
+      '',
+      'Se tiver qualquer dúvida, responda por aqui ou pelo portal.'
+    ].filter(Boolean).join('\n');
+  }
   if (status === 'Entregue') {
     const retirado = String(os.entreguePara || '').trim();
     return [
@@ -853,19 +865,28 @@ window.moverStatusOS = async function(id, novoStatus) {
     audit('KANBAN', `Moveu OS ${id.slice(-6)} de "${statusAntes}" para "${novoStatus}"`);
 
     if (novoStatus === 'Orcamento_Enviado') {
-        window.enviarWppB2C(id);
+        window.registrarAvisoClienteCRMOS?.(id, novoStatus, { origem: 'kanban', osPatch: updateStatus });
+        if (usuarioPodeDispararWppProntoOS()) {
+            setTimeout(() => window.dispararAvisoEntregaAutomatico?.(id, novoStatus), 300);
+        }
     }
 
     // Equipe apenas avisa internamente. Gestor/admin confirma Pronto e pode enviar WhatsApp.
     if (novoStatus === 'Pronto' && statusAntes !== 'Pronto') {
         window.registrarAvisoClienteCRMOS?.(id, novoStatus, { origem: 'kanban', osPatch: updateStatus });
         window.notificarAdminOSPronta?.(id, 'jarvis');
+        if (usuarioPodeDispararWppProntoOS()) {
+            setTimeout(() => window.dispararAvisoEntregaAutomatico?.(id, novoStatus), 300);
+        }
         return;
     }
 
     // WhatsApp automatico somente para entrega confirmada pelo gestor/caixa.
     if ((novoStatus === 'Entregue') && statusAntes !== 'Entregue') {
         window.registrarAvisoClienteCRMOS?.(id, novoStatus, { origem: 'kanban', osPatch: updateStatus });
+        if (usuarioPodeDispararWppProntoOS()) {
+            setTimeout(() => window.dispararAvisoEntregaAutomatico?.(id, novoStatus), 300);
+        }
     }
 };
 
@@ -969,9 +990,10 @@ window.dispararAvisoEntregaAutomatico = function(id, novoStatus) {
         crmPromise.finally(() => window.toast('Aviso registrado no CRM. WhatsApp do cliente esta invalido.', 'warn'));
         return;
     }
+    const rotulo = novoStatus === 'Orcamento_Enviado' ? 'ORCAMENTO ENVIADO' : (novoStatus === 'Pronto' ? 'PRONTO P/ RETIRADA' : 'ENTREGA CONFIRMADA');
     if (confirm(`Registrar aviso no CRM e abrir WhatsApp para ${c.nome || 'cliente'}?\n\n"${msg.substring(0, 220)}..."`)) {
         window.open(`https://wa.me/55${fone}?text=${encodeURIComponent(msg)}`, '_blank');
-        audit('WHATSAPP', `Aviso ${novoStatus === 'Pronto' ? 'PRONTO P/ RETIRADA' : 'ENTREGA CONFIRMADA'} enviado para ${c.nome} (OS ${id.slice(-6).toUpperCase()})`);
+        audit('WHATSAPP', `Aviso ${rotulo} enviado para ${c.nome} (OS ${id.slice(-6).toUpperCase()})`);
         crmPromise.finally(() => window.toast('Aviso registrado no CRM e WhatsApp aberto.', 'ok'));
     } else {
         crmPromise.finally(() => window.toast('Aviso registrado somente no CRM.', 'ok'));
@@ -2025,9 +2047,9 @@ window.verificarStatusOS = function() {
   if($('areaPgtoOS')) $('areaPgtoOS').style.display = (s === 'Pronto' || s === 'Entregue' || s === 'pronto' || s === 'entregue') ? 'block' : 'none';
   if($('btnEnviarWppOS')) $('btnEnviarWppOS').style.display = (s === 'Orcamento_Enviado' || s === 'orcamento' || s === 'aprovacao') && $v('osId') ? 'flex' : 'none';
   if($('btnAvisarProntoOS')) {
-    const podeAvisar = ['Pronto','pronto','Entregue','entregue'].includes(s) && $v('osId');
+    const podeAvisar = ['Orcamento_Enviado','orcamento_enviado','Pronto','pronto','Entregue','entregue'].includes(s) && $v('osId');
     $('btnAvisarProntoOS').style.display = podeAvisar ? 'inline-flex' : 'none';
-    $('btnAvisarProntoOS').textContent = (s === 'Entregue' || s === 'entregue') ? 'AVISAR CLIENTE: ENTREGA CONFIRMADA' : 'AVISAR CLIENTE: VEICULO PRONTO';
+    $('btnAvisarProntoOS').textContent = (s === 'Orcamento_Enviado' || s === 'orcamento_enviado') ? 'AVISAR CLIENTE: ORCAMENTO ENVIADO' : ((s === 'Entregue' || s === 'entregue') ? 'AVISAR CLIENTE: ENTREGA CONFIRMADA' : 'AVISAR CLIENTE: VEICULO PRONTO');
     $('btnAvisarProntoOS').onclick = function() { window.dispararAvisoEntregaAutomatico($v('osId'), $v('osStatus')); };
   }
   aplicarRegraParcelasPagamentoOS();
@@ -2371,6 +2393,12 @@ window.salvarOS = async function() {
           registouAlgo = true;
           
           // Equipe avisa internamente; admin/gestor confirma Pronto e pode abrir WhatsApp ao cliente.
+          if (payload.status === 'Orcamento_Enviado' && oldOS.status !== 'Orcamento_Enviado') {
+              setTimeout(() => {
+                  window.registrarAvisoClienteCRMOS?.(osId, 'Orcamento_Enviado', { origem: 'salvar_os', osPatch: payload });
+                  if (usuarioPodeDispararWppProntoOS()) window.dispararAvisoEntregaAutomatico?.(osId, 'Orcamento_Enviado');
+              }, 500);
+          }
           if (payload.status === 'Pronto' && oldOS.status !== 'Pronto') {
               dispararAvisoPronto = true;
               window.notificarAdminOSPronta?.(osId, 'jarvis_salvar');
@@ -2824,6 +2852,7 @@ if (osId) {
   if (dispararAvisoPronto && savedOsId) {
       setTimeout(() => {
           window.registrarAvisoClienteCRMOS?.(savedOsId, 'Pronto', { origem: 'salvar_os', osPatch: payload });
+          if (usuarioPodeDispararWppProntoOS()) window.dispararAvisoEntregaAutomatico?.(savedOsId, 'Pronto');
       }, 500);
   }
 
@@ -2831,6 +2860,7 @@ if (osId) {
   if (dispararAvisoEntrega && payload.clienteId) {
       setTimeout(() => {
           window.registrarAvisoClienteCRMOS?.(savedOsId, 'Entregue', { origem: 'salvar_os', osPatch: payload });
+          if (usuarioPodeDispararWppProntoOS()) window.dispararAvisoEntregaAutomatico?.(savedOsId, 'Entregue');
           return;
           if (confirm('A O.S. foi marcada como ENTREGUE. Deseja avisar o cliente via WhatsApp agora?')) {
               const cli = J.clientes.find(c => c.id === payload.clienteId);

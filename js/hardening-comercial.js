@@ -199,6 +199,55 @@
     return [];
   }
 
+  function iaArr(nome) {
+    return Array.isArray(window.J?.[nome]) ? window.J[nome] : [];
+  }
+
+  function iaDateISO(v) {
+    return String(v || '').slice(0, 10);
+  }
+
+  function iaMoney(v) {
+    const n = typeof v === 'number' ? v : parseFloat(String(v || '0').replace(/\./g, '').replace(',', '.')) || 0;
+    return n.toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
+  }
+
+  function iaTenantSnapshotLines(canFinance) {
+    const hoje = new Date();
+    const hojeISO = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}-${String(hoje.getDate()).padStart(2,'0')}`;
+    const osList = iaOsList();
+    const estoque = iaArr('estoque');
+    const financeiro = iaArr('financeiro');
+    const nfs = iaArr('notasFiscaisEntrada');
+    const vinculos = iaArr('nfItensVinculos');
+    const pacotes = iaArr('pacotesBoletos');
+    const fornecedores = iaArr('fornecedores');
+    const cotacoes = iaArr('cotacoes') || iaArr('cotacoesPecas');
+    const modulos = window.J?.oficina?.modulos || {};
+    const abertas = osList.filter(o => !/entreg|cancel|recus|finaliz/i.test(String(o.status || '')));
+    const prontas = osList.filter(o => /pronto|caixa|finaliz/i.test(String(o.status || '')));
+    const critico = estoque.filter(p => (Number(p.qtd || 0) <= Number(p.min || p.minimo || 0)));
+    const vencHoje = financeiro.filter(f => iaDateISO(f.venc || f.vencimento) === hojeISO && !/pago|liquidado|cancelado/i.test(String(f.status || '')));
+    const vencido = financeiro.filter(f => {
+      const d = iaDateISO(f.venc || f.vencimento);
+      return d && d < hojeISO && !/pago|liquidado|cancelado/i.test(String(f.status || ''));
+    });
+    const linhas = [];
+    linhas.push(`Tenant carregado: ${tenantId() || 'sem tenant'} | oficina ${window.J?.tnome || sessionStorage.getItem('j_tnome') || 'nao informada'}.`);
+    linhas.push(`Volume carregado: OS ${osList.length}; abertas ${abertas.length}; prontas/finalizadas ${prontas.length}; clientes ${iaClientes().length}; veiculos ${iaVeiculos().length}; estoque ${estoque.length}; fornecedores ${fornecedores.length}; NFs ${nfs.length}; vinculos NF/OS ${vinculos.length}; pacotes boletos ${pacotes.length}; cotacoes ${cotacoes.length}.`);
+    const modBloq = Object.entries(modulos).filter(([,v]) => v === false).map(([k]) => k);
+    if (modBloq.length) linhas.push(`Modulos bloqueados no tenant: ${modBloq.slice(0,40).join(', ')}.`);
+    if (critico.length) linhas.push(`Estoque critico: ${critico.slice(0,20).map(p => `${p.codigo || p.codigoFornecedor || ''} ${p.desc || p.descricao || ''} qtd ${p.qtd || 0} min ${p.min || p.minimo || 0}`).join(' | ')}.`);
+    if (canFinance) {
+      linhas.push(`Financeiro: vencem hoje ${vencHoje.length}; vencidos ${vencido.length}; total carregado ${financeiro.length}.`);
+      if (vencHoje.length) linhas.push(`Boletos/titulos vencendo hoje: ${vencHoje.slice(0,20).map(f => `${f.desc || f.id} ${iaMoney(f.valor)} venc ${f.venc || f.vencimento}`).join(' | ')}.`);
+      if (vencido.length) linhas.push(`Titulos vencidos: ${vencido.slice(0,20).map(f => `${f.desc || f.id} ${iaMoney(f.valor)} venc ${f.venc || f.vencimento}`).join(' | ')}.`);
+    }
+    if (nfs.length) linhas.push(`NFs recentes: ${nfs.slice(-12).map(n => `NF ${n.numero || '-'} ${n.fornecedorSnapshot?.nome || n.fornecedorNome || '-'} ${iaDateISO(n.dataNF || n.createdAt)} ${iaMoney(n.totalNF || n.totalItens)}`).join(' | ')}.`);
+    if (pacotes.length && canFinance) linhas.push(`Pacotes de boletos: ${pacotes.slice(-12).map(p => `${p.numero || p.id} ${p.fornecedorNome || '-'} ${iaMoney(p.total)} ${p.status || 'Aberto'}`).join(' | ')}.`);
+    return linhas;
+  }
+
   function iaItemLabel(item) {
     return item?.desc || item?.descricao || item?.nome || item?.servico || item?.peca || item?.codigo || 'item sem descricao';
   }
@@ -238,6 +287,7 @@
     linhas.push('Regra de verdade: item orcado nao e item aprovado; item aprovado nao e item executado; peca comprada nao e peca instalada; so considere executado quando houver status de execucao.');
     linhas.push('Se faltar dado, responda literalmente que nao ha dado registrado.');
     if (perfil === 'equipe' || perfil === 'mecanico') linhas.push('Perfil equipe: nao exponha valores, custos, faturamento, margens, comissoes ou financeiro.');
+    linhas.push(...iaTenantSnapshotLines(canFinance));
     if (!alvo.length) linhas.push('Nenhuma O.S. correspondente encontrada no contexto local.');
     alvo.slice(0, 30).forEach(o => {
       const v = veiculos.find(x => x.id === o.veiculoId) || {};
