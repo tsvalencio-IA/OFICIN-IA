@@ -835,12 +835,17 @@
     }
     const parcelas = collectParcelas();
     const forma = getVal('nfPgtoForma') || 'Dinheiro';
-    if(parcelas.length){
-      for(const [idx,p] of parcelas.entries()){
-        batch.set(W.db.collection('financeiro').doc(), { tenantId:W.J.tid, tipo:'Saída', status:['Dinheiro','PIX'].includes(forma)?'Pago':'Pendente', desc:`NF ${nfPayload.numero || 's/n'} — ${nfe?.fornecedor?.nome || 'Fornecedor'} (${idx+1}/${parcelas.length})`, valor:p.valor, pgto:forma, venc:p.vencimento || isoToday(), notaFiscalId:nfRef.id, chaveNFe:nfPayload.chave, fornecedorId, createdAt:new Date().toISOString() });
+    const formaNorm = String(forma).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const formaAVista = formaNorm.includes('pix') || formaNorm.includes('dinheiro') || formaNorm.includes('debito');
+    const formaPermiteParcelas = formaNorm.includes('boleto') || formaNorm.includes('parcelado');
+    const parcelasFinanceiras = formaPermiteParcelas && !formaAVista ? parcelas : [];
+    const statusFinanceiro = formaAVista ? 'Pago' : 'Pendente';
+    if(parcelasFinanceiras.length){
+      for(const [idx,p] of parcelasFinanceiras.entries()){
+        batch.set(W.db.collection('financeiro').doc(), { tenantId:W.J.tid, tipo:'Saída', status:statusFinanceiro, desc:`NF ${nfPayload.numero || 's/n'} — ${nfe?.fornecedor?.nome || 'Fornecedor'} (${idx+1}/${parcelasFinanceiras.length})`, valor:p.valor, pgto:forma, venc:p.vencimento || isoToday(), notaFiscalId:nfRef.id, chaveNFe:nfPayload.chave, fornecedorId, createdAt:new Date().toISOString() });
       }
     } else {
-      batch.set(W.db.collection('financeiro').doc(), { tenantId:W.J.tid, tipo:'Saída', status:['Dinheiro','PIX'].includes(forma)?'Pago':'Pendente', desc:`NF ${nfPayload.numero || 's/n'} — ${nfe?.fornecedor?.nome || 'Fornecedor'}`, valor:totalNF, pgto:forma, venc:getVal('nfVenc') || isoToday(), notaFiscalId:nfRef.id, chaveNFe:nfPayload.chave, fornecedorId, createdAt:new Date().toISOString() });
+      batch.set(W.db.collection('financeiro').doc(), { tenantId:W.J.tid, tipo:'Saída', status:statusFinanceiro, desc:`NF ${nfPayload.numero || 's/n'} — ${nfe?.fornecedor?.nome || 'Fornecedor'}`, valor:totalNF, pgto:forma, venc:getVal('nfVenc') || isoToday(), notaFiscalId:nfRef.id, chaveNFe:nfPayload.chave, fornecedorId, createdAt:new Date().toISOString() });
     }
     await batch.commit();
     await salvarRegistrosAuxiliaresNF(vinculosOS);

@@ -70,7 +70,7 @@
   else pass('Isolamento de tenant', 'Nenhum item carregado com tenantId diferente.');
 
   const pixParcelado = arr('financeiro').filter(f => /pix/i.test(String(f.pgto || f.forma || '')) && (Number(f.pgtoParcelas || f.parcelas || 1) > 1 || /\(\d+\/\d+\)/.test(String(f.desc || ''))));
-  if (pixParcelado.length) fail('Financeiro PIX parcelado', pixParcelado.slice(0,10).map(f => `${f.desc || f.id} ${money(f.valor)}`).join(' | '));
+  if (pixParcelado.length) fail('Financeiro PIX parcelado', pixParcelado.slice(0,10).map(f => `${f.id || 'sem-id'}: ${f.desc || '-'} ${money(f.valor)}`).join(' | '));
   else pass('Financeiro PIX parcelado', 'Nenhum PIX parcelado detectado nos dados carregados.');
 
   const nfs = arr('notasFiscaisEntrada');
@@ -123,7 +123,7 @@
   }
 
   if (fn('thiaListarPixParcelado')) {
-    warn('Reparo financeiro disponível', 'Para ver inconsistencias: thiaListarPixParcelado(). Para corrigir um ID com auditoria: thiaCorrigirPixParcelado(\"ID_DO_LANCAMENTO\").');
+    warn('Reparo financeiro disponível', 'Para ver inconsistências: thiaListarPixParcelado(). Para corrigir tudo com auditoria: thiaCorrigirTodosPixParcelado(\"Correção PIX à vista\"). Para um ID: thiaCorrigirPixParcelado(\"ID_DO_LANCAMENTO\").');
   }
 
   const cssFinanceiroEquipe = document.body.innerText || '';

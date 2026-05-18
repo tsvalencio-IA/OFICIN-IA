@@ -922,9 +922,37 @@
   }
 
   function isPixParceladoInconsistente(f) {
+    const status = norm(f?.status);
+    if (/cancel|estorn/.test(status)) return false;
     const forma = String(f?.pgto || f?.forma || f?.formaPagamento || '').toLowerCase();
     const desc = String(f?.desc || f?.descricao || '');
     return /pix/.test(forma) && (/\(\d+\s*\/\s*\d+\)/.test(desc) || num(f?.pgtoParcelas || f?.parcelas || 1) > 1);
+  }
+
+  function descSemMarcadorParcela(f) {
+    return String(f?.desc || f?.descricao || '')
+      .replace(/\s*\(\d+\s*\/\s*\d+\)\s*/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  function ordemParcelaPix(f) {
+    const m = String(f?.desc || f?.descricao || '').match(/\((\d+)\s*\/\s*\d+\)/);
+    return m ? parseInt(m[1], 10) || 999 : 999;
+  }
+
+  function chaveGrupoPixParcelado(f) {
+    if (f?.notaFiscalId) return 'nf:' + f.notaFiscalId;
+    if (f?.chaveNFe) return 'chave:' + f.chaveNFe;
+    if (f?.osId) return 'os:' + f.osId;
+    return 'desc:' + norm(descSemMarcadorParcela(f));
+  }
+
+  function grupoPixParcelado(f) {
+    const chave = chaveGrupoPixParcelado(f);
+    return (J().financeiro || [])
+      .filter(x => isPixParceladoInconsistente(x) && chaveGrupoPixParcelado(x) === chave)
+      .sort((a,b) => ordemParcelaPix(a) - ordemParcelaPix(b));
   }
 
   function installAuditoriaFinanceiraLocal() {
@@ -937,7 +965,9 @@
         venc: f.venc || f.vencimento || '',
         status: f.status || '',
         pgto: f.pgto || f.forma || f.formaPagamento || '',
-        parcelas: f.pgtoParcelas || f.parcelas || ''
+        parcelas: f.pgtoParcelas || f.parcelas || '',
+        grupo: chaveGrupoPixParcelado(f),
+        comando: `thiaCorrigirPixParcelado("${f.id}")`
       })));
       return lista;
     };
@@ -948,18 +978,39 @@
       if (!isPixParceladoInconsistente(f)) { toast('Este lancamento nao parece PIX parcelado.', 'warn'); return false; }
       motivo = motivo || prompt('Motivo da correcao do PIX parcelado:', 'Correcao de inconsistencia: PIX nao deve gerar parcelas') || '';
       if (!motivo.trim()) { toast('Motivo obrigatorio para auditoria.', 'warn'); return false; }
-      const descLimpa = String(f.desc || '').replace(/\s*\(\d+\s*\/\s*\d+\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+      const grupo = grupoPixParcelado(f);
+      const manter = grupo.find(x => ordemParcelaPix(x) === 1) || f;
+      const cancelar = grupo.filter(x => x.id !== manter.id);
+      const totalGrupo = grupo.reduce((s,x) => s + num(x.valor || 0), 0) || num(f.valor || 0);
+      const descLimpa = descSemMarcadorParcela(manter) || descSemMarcadorParcela(f);
       const patch = {
         desc: descLimpa || f.desc || '',
+        valor: totalGrupo,
+        status: 'Pago',
         pgtoParcelas: 1,
         parcelas: 1,
         inconsistenciaFinanceiraCorrigida: true,
+        pixParceladoConsolidado: grupo.length > 1,
+        pixParceladoIdsConsolidados: grupo.map(x => x.id).filter(Boolean),
         corrigidoEm: new Date().toISOString(),
         corrigidoPor: J().nome || 'Jarvis',
         motivoCorrecao: motivo,
         updatedAt: new Date().toISOString()
       };
-      await db().collection('financeiro').doc(id).update(patch);
+      await db().collection('financeiro').doc(manter.id).update(patch);
+      Object.assign(manter, patch);
+      for (const item of cancelar) {
+        const cancelPatch = {
+          status: 'Cancelado',
+          canceladoPorConsolidacaoPixParcelado: true,
+          pixParceladoConsolidadoEm: manter.id,
+          valorAntesCancelamento: num(item.valor || 0),
+          motivoCancelamento: motivo,
+          updatedAt: new Date().toISOString()
+        };
+        await db().collection('financeiro').doc(item.id).update(cancelPatch);
+        Object.assign(item, cancelPatch);
+      }
       try {
         await db().collection('auditoria').add({
           tenantId: J().tid,
@@ -967,16 +1018,32 @@
           perfil: J().role || '',
           acao: 'correcao_pix_parcelado',
           entidade: 'financeiro',
-          entidadeId: id,
-          antes: f,
-          depois: patch,
+          entidadeId: manter.id,
+          antes: grupo,
+          depois: { mantido: manter.id, atualizado: patch, cancelados: cancelar.map(x => x.id) },
           motivo,
           createdAt: new Date().toISOString(),
           ts: Date.now()
         });
       } catch (_) {}
-      toast('Lancamento PIX corrigido com auditoria.', 'ok');
+      toast(`PIX corrigido com auditoria: ${grupo.length} lancamento(s) consolidado(s).`, 'ok');
       return true;
+    };
+    W.thiaCorrigirTodosPixParcelado = async function (motivo) {
+      const lista = (J().financeiro || []).filter(isPixParceladoInconsistente);
+      if (!lista.length) { toast('Nenhum PIX parcelado encontrado.', 'ok'); return 0; }
+      motivo = motivo || prompt('Motivo da correcao em lote do PIX parcelado:', 'Correcao em lote: PIX nao deve gerar parcelas') || '';
+      if (!motivo.trim()) { toast('Motivo obrigatorio para auditoria.', 'warn'); return 0; }
+      const grupos = [];
+      const vistos = new Set();
+      lista.forEach(f => {
+        const chave = chaveGrupoPixParcelado(f);
+        if (vistos.has(chave)) return;
+        vistos.add(chave);
+        grupos.push(f.id);
+      });
+      for (const pixId of grupos) await W.thiaCorrigirPixParcelado(pixId, motivo);
+      return grupos.length;
     };
   }
 
