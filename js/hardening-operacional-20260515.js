@@ -921,6 +921,65 @@
     W.thiaResponderLocal._hardeningLocal = true;
   }
 
+  function isPixParceladoInconsistente(f) {
+    const forma = String(f?.pgto || f?.forma || f?.formaPagamento || '').toLowerCase();
+    const desc = String(f?.desc || f?.descricao || '');
+    return /pix/.test(forma) && (/\(\d+\s*\/\s*\d+\)/.test(desc) || num(f?.pgtoParcelas || f?.parcelas || 1) > 1);
+  }
+
+  function installAuditoriaFinanceiraLocal() {
+    W.thiaListarPixParcelado = function () {
+      const lista = (J().financeiro || []).filter(isPixParceladoInconsistente);
+      console.table(lista.map(f => ({
+        id: f.id,
+        desc: f.desc || f.descricao || '',
+        valor: num(f.valor || 0),
+        venc: f.venc || f.vencimento || '',
+        status: f.status || '',
+        pgto: f.pgto || f.forma || f.formaPagamento || '',
+        parcelas: f.pgtoParcelas || f.parcelas || ''
+      })));
+      return lista;
+    };
+    W.thiaCorrigirPixParcelado = async function (id, motivo) {
+      if (!id || !db()) { toast('Informe o ID do lancamento financeiro.', 'warn'); return false; }
+      const f = (J().financeiro || []).find(x => x.id === id);
+      if (!f) { toast('Lancamento nao encontrado nos dados carregados.', 'warn'); return false; }
+      if (!isPixParceladoInconsistente(f)) { toast('Este lancamento nao parece PIX parcelado.', 'warn'); return false; }
+      motivo = motivo || prompt('Motivo da correcao do PIX parcelado:', 'Correcao de inconsistencia: PIX nao deve gerar parcelas') || '';
+      if (!motivo.trim()) { toast('Motivo obrigatorio para auditoria.', 'warn'); return false; }
+      const descLimpa = String(f.desc || '').replace(/\s*\(\d+\s*\/\s*\d+\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+      const patch = {
+        desc: descLimpa || f.desc || '',
+        pgtoParcelas: 1,
+        parcelas: 1,
+        inconsistenciaFinanceiraCorrigida: true,
+        corrigidoEm: new Date().toISOString(),
+        corrigidoPor: J().nome || 'Jarvis',
+        motivoCorrecao: motivo,
+        updatedAt: new Date().toISOString()
+      };
+      await db().collection('financeiro').doc(id).update(patch);
+      try {
+        await db().collection('auditoria').add({
+          tenantId: J().tid,
+          usuario: J().nome || 'Jarvis',
+          perfil: J().role || '',
+          acao: 'correcao_pix_parcelado',
+          entidade: 'financeiro',
+          entidadeId: id,
+          antes: f,
+          depois: patch,
+          motivo,
+          createdAt: new Date().toISOString(),
+          ts: Date.now()
+        });
+      } catch (_) {}
+      toast('Lancamento PIX corrigido com auditoria.', 'ok');
+      return true;
+    };
+  }
+
   function tick() {
     installCSS();
     wrapNFOpeners();
@@ -934,6 +993,7 @@
     wrapSalvarOS();
     installOrcamentoAuto();
     extendIALocal();
+    installAuditoriaFinanceiraLocal();
     W.thiaApplyModuleVisibility?.(D);
   }
 
