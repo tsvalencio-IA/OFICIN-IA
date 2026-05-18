@@ -346,16 +346,19 @@ window.salvarNF = async function() {
         });
     }
     
-    const formas = ['Dinheiro', 'PIX']; 
-    const st = formas.includes($v('nfPgtoForma')) ? 'Pago' : 'Pendente';
-    const nPar = parseInt($v('nfParcelas') || 1);
+    const formaNF = $v('nfPgtoForma') || 'Dinheiro';
+    const formaNormNF = String(formaNF).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const formaAVistaNF = formaNormNF.includes('pix') || formaNormNF.includes('dinheiro') || formaNormNF.includes('debito');
+    const formaPermiteParcelasNF = formaNormNF.includes('boleto') || formaNormNF.includes('parcelado');
+    const st = formaAVistaNF ? 'Pago' : 'Pendente';
+    const nPar = formaPermiteParcelasNF ? (parseInt($v('nfParcelas') || 1, 10) || 1) : 1;
     
     for (let i = 0; i < nPar; i++) {
         const dISO = somarMesesISOFin($v('nfVenc') || dataLocalISOFin(), i);
         batch.set(db.collection('financeiro').doc(), {
             tenantId: J.tid, tipo: 'Saída', status: st,
             desc: `NF ${$v('nfNumero') || 's/n'} — ${J.fornecedores.find(f => f.id === $v('nfFornec'))?.nome || 'Fornecedor'} ${nPar > 1 ? `(${i + 1}/${nPar})` : ''}`,
-            valor: totalNF / nPar, pgto: $v('nfPgtoForma'), venc: dISO, createdAt: new Date().toISOString()
+            valor: totalNF / nPar, pgto: formaNF, venc: dISO, createdAt: new Date().toISOString()
         });
     }
     
