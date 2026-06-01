@@ -1344,12 +1344,21 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
             <option value="Dinheiro">Dinheiro</option><option value="PIX">PIX</option>
             <option value="Débito">Cartão Débito</option><option value="Crédito à Vista">Crédito à Vista</option>
             <option value="Crédito Parcelado">Crédito Parcelado</option><option value="Boleto">Boleto (Pendente)</option>
+            <option value="Recebimento Combinado">Recebimento Combinado</option>
           </select>
         </div>
         <div class="form-group"><label class="j-label">Data do Pagamento</label><input type="date" class="j-input" id="osPgtoData"></div>
         <div class="form-group" id="divParcelasOS" style="display:none;"><label class="j-label">Parcelas</label>
           <select class="j-select" id="osPgtoParcelas"><option value="1">1x</option><option value="2">2x</option><option value="3">3x</option><option value="4">4x</option><option value="6">6x</option><option value="10">10x</option><option value="12">12x</option></select>
         </div>
+      </div>
+      <div id="osPgtoCombinadoBox" style="display:none;border:1px solid rgba(0,212,255,0.18);background:rgba(0,212,255,0.04);border-radius:3px;padding:12px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
+          <div style="font-family:var(--fm);font-size:0.68rem;color:var(--cyan);letter-spacing:1px;font-weight:700;">RECEBIMENTO COMBINADO</div>
+          <button type="button" class="btn-ghost" onclick="window.adicionarPagamentoCombinadoOS()">+ ADICIONAR FORMA</button>
+        </div>
+        <div id="osPgtoCombinadoRows" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <div style="font-family:var(--fm);font-size:0.64rem;color:var(--muted);margin-top:8px;">A soma das formas precisa bater com o total financeiro da O.S. Ex.: R$ 200,00 em dinheiro + restante no cartao.</div>
       </div>
       <div class="form-row cols-2">
         <div class="form-group"><label class="j-label">Próxima Revisão — Data</label><input type="date" class="j-input" id="osProxRev"></div>
@@ -3199,10 +3208,24 @@ window.salvarPeca = async function() {
 }
 window.renderEstoque = function() {
   if(!$('tbEstoque')) return;
-  $('tbEstoque').innerHTML = J.estoque.map(p=>{
+  if(!$('buscaEstoquePecas')) {
+    const tableEstoque = $('tbEstoque').closest('table');
+    if(tableEstoque && tableEstoque.parentNode) {
+      const boxBusca = document.createElement('div');
+      boxBusca.style.cssText = 'padding:12px;border-bottom:1px solid var(--border);';
+      boxBusca.innerHTML = '<input class="j-input" id="buscaEstoquePecas" placeholder="Pesquisar peça por código, descrição, marca, fornecedor ou NF..." oninput="window._estoqueBuscaPecas=this.value;window.renderEstoque()">';
+      tableEstoque.parentNode.insertBefore(boxBusca, tableEstoque);
+    }
+  }
+  const termo = String(window._estoqueBuscaPecas || $('buscaEstoquePecas')?.value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const listaEstoque = termo ? (J.estoque || []).filter(p => {
+    const txt = [p.codigo, p.codigoFornecedor, p.codigoComercial, p.oem, p.ean, p.desc, p.descricao, p.marca, p.fornecedorNome, p.ultimaFornecedor, p.ultimaNF].join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    return txt.includes(termo);
+  }) : (J.estoque || []);
+  $('tbEstoque').innerHTML = listaEstoque.map(p=>{
     const crit=(p.qtd||0)<=(p.min||0);
     return `<tr class="${crit?'stock-critical':''}"><td style="font-family:var(--fm);font-size:0.75rem;color:var(--muted)">${p.codigo||'-'}</td><td><strong>${p.desc}</strong></td><td style="font-family:var(--fm)">${moeda(p.custo)}</td><td style="font-family:var(--fm);color:var(--success)">${moeda(p.venda)}</td><td style="font-family:var(--fm);font-weight:700;color:${crit?'var(--danger)':'var(--text)'}">${p.qtd||0}</td><td style="font-family:var(--fm);color:var(--muted)">${p.min||0}</td><td>${crit?'<span class="pill pill-danger">CRÍTICO</span>':'<span class="pill pill-green">OK</span>'}</td><td><button class="btn-ghost" onclick="window.prepPeca('edit','${p.id}');abrirModal('modalPeca')">✏</button></td></tr>`;
-  }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">Nenhum item</td></tr>';
+  }).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${termo ? 'Nenhuma peça encontrada' : 'Nenhum item'}</td></tr>`;
 }
 
 function vendaModuloLiberado(canal){

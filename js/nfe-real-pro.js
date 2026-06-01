@@ -1045,6 +1045,10 @@
     const vinculo = String(item?.vinculo || '');
     return !!(/\bos\b|o\.s\.|ordem/i.test(vinculo) || /^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(placa));
   }
+  function destinoEstoqueNF(item){
+    const destino = String(item?.destino || item?.finalidade || 'estoque').toLowerCase();
+    return !destino || destino === 'estoque';
+  }
   function destinosOperacionaisItemNF(item){
     const arr = Array.isArray(item?.destinosOperacionais) ? item.destinosOperacionais : (Array.isArray(item?.destinos) ? item.destinos : []);
     if (arr.length) return arr.filter(d => (Number(d?.qtd || d?.quantidade || 0) || 0) > 0);
@@ -1248,6 +1252,55 @@
     });
     return out;
   }
+  function osTemFluxoCiliaOuOficialNF(os){
+    const pecas = Array.isArray(os?.pecas) ? os.pecas : [];
+    const servicos = Array.isArray(os?.servicos) ? os.servicos : [];
+    const temCilia = pecas.some(p => p && (p.origem === 'cilia' || p.ciliaImportado === true || p.ciliaPieceIndex !== undefined || p.ciliaGrupo || p.ciliaAgrupador)) ||
+      servicos.some(s => s && (s.origemServico === 'cilia_tabela_tempa' || s.origemServico === 'cilia_tabela_tempa_editado' || s.ciliaPieceIndex !== undefined));
+    if (temCilia) return true;
+    const cliente = (W.J?.clientes || []).find(c => String(c.id) === String(os?.clienteId || os?.cliente || '')) || {};
+    return !!(os?.clienteOficial || os?.orgaoPublico || os?.gov || cliente.clienteOficial || cliente.orgaoPublico || cliente.publico || cliente.gov);
+  }
+  function pecaOrcamentoFromNF(pecaReal){
+    const desc = pecaReal.desc || pecaReal.descricao || '';
+    const codigo = pecaReal.codigoComercial || pecaReal.codigoFornecedor || pecaReal.codigo || '';
+    if (!desc && !codigo) return null;
+    return cleanFirestoreNF({
+      origem: 'nf_entrada_os',
+      origemNFItemKey: pecaReal.origemNFItemKey || '',
+      estoqueId: '',
+      codigo,
+      desc,
+      qtd: Number(pecaReal.qtd || 1) || 1,
+      custo: Number(pecaReal.valorCompra || 0) || 0,
+      venda: Number(pecaReal.valorVenda || pecaReal.valorCompra || 0) || 0,
+      baixarEstoqueReal: false,
+      estoqueBaixadoAutomatico: true,
+      fornecedor: pecaReal.fornecedor || '',
+      nf: pecaReal.nf || pecaReal.nfNumero || '',
+      nfId: pecaReal.nfId || '',
+      nfNumero: pecaReal.nfNumero || pecaReal.nf || '',
+      dataCompra: pecaReal.dataCompra || pecaReal.dataNF || '',
+      origemNFVinculada: true
+    });
+  }
+  function mergePecasOrcamentoNF(atuais, novas){
+    const out = Array.isArray(atuais) ? atuais.slice() : [];
+    const keyOf = p => p?.origemNFItemKey || [p?.nfId || p?.nf || '', p?.codigo || '', p?.desc || p?.descricao || '', p?.qtd || ''].join('|');
+    const pos = new Map();
+    out.forEach((p, idx) => { const k = keyOf(p); if (k) pos.set(k, idx); });
+    novas.forEach(p => {
+      const k = keyOf(p);
+      if (k && pos.has(k)) {
+        const idx = pos.get(k);
+        out[idx] = Object.assign({}, out[idx], p);
+      } else {
+        if (k) pos.set(k, out.length);
+        out.push(p);
+      }
+    });
+    return out;
+  }
   async function registrarPecasReaisOSNF(batch, itens, nfRef, nfPayload, fornecedorId, fornecedorNome){
     const porOS = new Map();
     const semDestino = [];
@@ -1289,12 +1342,17 @@
         ultimaEntradaNFVinculada: nfPayload.numero || nfRef.id
       };
       osUpdate.pecasReais = mergePecasReaisNF(entry.os.pecasReais, pecas);
+      if (!osTemFluxoCiliaOuOficialNF(entry.os)) {
+        const pecasOrcamento = pecas.map(pecaOrcamentoFromNF).filter(Boolean);
+        if (pecasOrcamento.length) osUpdate.pecas = mergePecasOrcamentoNF(entry.os.pecas, pecasOrcamento);
+      }
       osUpdate.timeline = (Array.isArray(entry.os.timeline) ? entry.os.timeline.slice() : []).concat(evento);
       batch.set(W.db.collection('ordens_servico').doc(osId), cleanFirestoreNF(osUpdate), { merge: true });
       registrosAuxiliares.push({ osId, acao, nfId: nfRef.id, nfNumero: nfPayload.numero || '', pecas });
       const localOS = (W.J?.os || []).find(o => String(o.id) === String(osId));
       if (localOS) {
         localOS.pecasReais = mergePecasReaisNF(localOS.pecasReais, pecas);
+        if (osUpdate.pecas) localOS.pecas = osUpdate.pecas;
         localOS.timeline = (Array.isArray(localOS.timeline) ? localOS.timeline.slice() : []).concat(evento);
         localOS.ultimaEntradaNFVinculada = nfPayload.numero || nfRef.id;
         localOS.updatedAt = osUpdate.updatedAt;
@@ -1570,7 +1628,7 @@
       const existente = (W.J?.estoque || []).find(p => String(p.codigo||p.oem||'').toLowerCase() === String(item.codigo||'').toLowerCase() && item.codigo) || (W.J?.estoque || []).find(p => String(p.desc||'').toLowerCase() === String(item.descricao||'').toLowerCase());
       const destinosItem = expandirItensPorDestinoNF([item]);
       const entradaQtd = destinosItem.reduce((s, d) => s + (Number(d.quantidade || d.qtd || 0) || 0), 0);
-      const qtdDisponivel = destinosItem.filter(d => !destinoVinculadoNF(d)).reduce((s, d) => s + (Number(d.quantidade || d.qtd || 0) || 0), 0);
+      const qtdDisponivel = destinosItem.filter(destinoEstoqueNF).reduce((s, d) => s + (Number(d.quantidade || d.qtd || 0) || 0), 0);
       const custoOp = custoOperacionalNF(item);
       const estoqueRef = existente ? W.db.collection('estoqueItems').doc(existente.id) : W.db.collection('estoqueItems').doc();
       const estoqueId = estoqueRef.id;

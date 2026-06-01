@@ -167,17 +167,102 @@ function formaPagamentoPermiteParcelasOS(forma) {
   return formaPagamentoParcelaClienteOS(forma) || formaPagamentoParcelaOperadoraOS(forma);
 }
 
+function formaPagamentoCombinadaOS(forma) {
+  const n = normalizarPagamentoOS(forma);
+  return n.includes('combinado') || n.includes('misto');
+}
+
 function parcelasPagamentoOS(forma, rawParcelas) {
   if (!formaPagamentoPermiteParcelasOS(forma)) return 1;
   const n = parseInt(rawParcelas || 1, 10);
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
+function parcelasPagamentoComponenteOS(forma, rawParcelas) {
+  if (!formaPagamentoPermiteParcelasOS(forma)) return 1;
+  const n = parseInt(rawParcelas || 1, 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+function atualizarParcelaPagamentoCombinadoRowOS(row) {
+  if (!row) return;
+  const forma = row.querySelector('.os-combo-forma')?.value || '';
+  const wrap = row.querySelector('.os-combo-parcelas-wrap');
+  const sel = row.querySelector('.os-combo-parcelas');
+  const permite = formaPagamentoPermiteParcelasOS(forma);
+  if (wrap) wrap.style.display = permite ? 'block' : 'none';
+  if (sel && !permite) sel.value = '1';
+}
+
+function pagamentoCombinadoRowHtmlOS(dados = {}) {
+  const forma = dados.forma || 'Dinheiro';
+  const valor = dados.valor != null ? String(dados.valor).replace('.', ',') : '';
+  const parcelas = parcelasPagamentoComponenteOS(forma, dados.parcelas || 1);
+  const data = dados.data || dados.venc || document.getElementById('osPgtoData')?.value || dataLocalISOOS();
+  const opts = ['Dinheiro','PIX','Débito','Crédito à Vista','Crédito Parcelado','Boleto','Crediário']
+    .map(f => `<option value="${escOS(f)}"${normalizarPagamentoOS(f) === normalizarPagamentoOS(forma) ? ' selected' : ''}>${escOS(f)}</option>`).join('');
+  const parcOpts = [1,2,3,4,5,6,7,8,9,10,11,12].map(n => `<option value="${n}"${n === parcelas ? ' selected' : ''}>${n}x</option>`).join('');
+  return `<div class="os-combo-row" style="display:grid;grid-template-columns:1.2fr 120px 110px 110px 34px;gap:8px;align-items:end;">
+    <div><label class="j-label">Forma</label><select class="j-select os-combo-forma" onchange="window.atualizarParcelaPagamentoCombinadoOS(this)">${opts}</select></div>
+    <div><label class="j-label">Valor</label><input class="j-input os-combo-valor" inputmode="decimal" value="${escOS(valor)}" placeholder="0,00"></div>
+    <div class="os-combo-parcelas-wrap"><label class="j-label">Parcelas</label><select class="j-select os-combo-parcelas">${parcOpts}</select></div>
+    <div><label class="j-label">Data</label><input type="date" class="j-input os-combo-data" value="${escOS(data)}"></div>
+    <button type="button" class="btn-danger" onclick="this.closest('.os-combo-row').remove()">x</button>
+  </div>`;
+}
+
+function renderPagamentosCombinadosOS(lista = []) {
+  const box = document.getElementById('osPgtoCombinadoRows');
+  if (!box) return;
+  box.innerHTML = '';
+  (Array.isArray(lista) ? lista : []).forEach(item => {
+    box.insertAdjacentHTML('beforeend', pagamentoCombinadoRowHtmlOS(item));
+  });
+  Array.from(box.querySelectorAll('.os-combo-row')).forEach(atualizarParcelaPagamentoCombinadoRowOS);
+}
+
+window.adicionarPagamentoCombinadoOS = function(dados) {
+  const box = document.getElementById('osPgtoCombinadoRows');
+  if (!box) return;
+  box.insertAdjacentHTML('beforeend', pagamentoCombinadoRowHtmlOS(dados || {}));
+  atualizarParcelaPagamentoCombinadoRowOS(box.lastElementChild);
+};
+
+window.atualizarParcelaPagamentoCombinadoOS = function(el) {
+  atualizarParcelaPagamentoCombinadoRowOS(el?.closest?.('.os-combo-row'));
+};
+
+function coletarPagamentosCombinadosOS() {
+  return Array.from(document.querySelectorAll('#osPgtoCombinadoRows .os-combo-row')).map((row, idx) => {
+    const forma = row.querySelector('.os-combo-forma')?.value || '';
+    const valor = numBR(row.querySelector('.os-combo-valor')?.value || 0);
+    const parcelas = parcelasPagamentoComponenteOS(forma, row.querySelector('.os-combo-parcelas')?.value || 1);
+    const data = row.querySelector('.os-combo-data')?.value || document.getElementById('osPgtoData')?.value || dataLocalISOOS();
+    return { indice: idx + 1, forma, valor, parcelas, data };
+  }).filter(p => p.forma && p.valor > 0);
+}
+
+function assinaturaPagamentoCombinadoOS(lista) {
+  return JSON.stringify((Array.isArray(lista) ? lista : []).map(p => ({
+    forma: normalizarPagamentoOS(p.forma || ''),
+    valor: +numBR(p.valor || 0).toFixed(2),
+    parcelas: parcelasPagamentoComponenteOS(p.forma || '', p.parcelas || 1),
+    data: String(p.data || p.venc || '').slice(0, 10)
+  })));
+}
+
 function aplicarRegraParcelasPagamentoOS() {
   const forma = document.getElementById('osPgtoForma')?.value || '';
   const div = document.getElementById('divParcelasOS');
   const sel = document.getElementById('osPgtoParcelas');
-  const permite = formaPagamentoPermiteParcelasOS(forma);
+  const combinado = formaPagamentoCombinadaOS(forma);
+  const comboBox = document.getElementById('osPgtoCombinadoBox');
+  const permite = !combinado && formaPagamentoPermiteParcelasOS(forma);
+  if (comboBox) comboBox.style.display = combinado ? 'block' : 'none';
+  if (combinado && !document.querySelector('#osPgtoCombinadoRows .os-combo-row')) {
+    window.adicionarPagamentoCombinadoOS?.({ forma: 'Dinheiro' });
+    window.adicionarPagamentoCombinadoOS?.({ forma: 'Crédito Parcelado' });
+  }
   if (div) div.style.display = permite ? 'block' : 'none';
   if (sel && !permite) sel.value = '1';
   if (sel && permite && !sel.value) sel.value = '1';
@@ -1477,6 +1562,7 @@ window.prepOS = function(mode, id = null) {
   if ($('osTotalHidden')) $('osTotalHidden').value = '0';
   ['osProxRev','osProxKm','osPgtoForma','osPgtoData','osPgtoParcelas','osModeloOS','osCabecalhoOS','osValorHoraOS','osDescMO','osDescPeca','osEntregueA','osGuinchoKm','osGuinchoAjuste','osGuinchoDesconto','osGuinchoObs','osGuinchoKm','osGuinchoAjuste','osGuinchoObs'].forEach(f => { if ($(f)) $(f).value = ''; });
   if ($('osPgtoParcelas')) $('osPgtoParcelas').value = '1';
+  renderPagamentosCombinadosOS([]);
   aplicarRegraParcelasPagamentoOS();
   window.setDeslocamentoGuinchoOS?.({ ativo: false, tipo: 'leve', franquiaKm: 0, valorSaida: 253.22, valorKmAdicional: 8.51, ajustePct: 0, descontoPct: 0, kmTotal: 0, cobrarIdaVolta: true, abaterFranquia: false, obs: '' });
   if ($('osMediaGrid')) $('osMediaGrid').innerHTML = ''; 
@@ -1574,6 +1660,7 @@ window.prepOS = function(mode, id = null) {
     if ($('osPgtoForma')) $('osPgtoForma').value = _formaPgtoLoad;
     if ($('osPgtoData')) $('osPgtoData').value = _pgtoLegadoSemLastro ? '' : (o.pgtoData || '');
     if ($('osPgtoParcelas')) $('osPgtoParcelas').value = String(parcelasPagamentoOS(_formaPgtoLoad, o.pgtoParcelas || 1));
+    renderPagamentosCombinadosOS(o.pgtoCombinado || []);
     aplicarRegraParcelasPagamentoOS();
     
     window.osPecas = o.pecas || [];
@@ -2994,6 +3081,8 @@ window.salvarOS = async function() {
   payload.pgtoForma    = $v('osPgtoForma') || '';
   payload.pgtoData     = $v('osPgtoData') || '';
   payload.pgtoParcelas = parcelasPagamentoOS(payload.pgtoForma, $v('osPgtoParcelas') || 1);
+  payload.pgtoCombinado = formaPagamentoCombinadaOS(payload.pgtoForma) ? coletarPagamentosCombinadosOS() : [];
+  if (formaPagamentoCombinadaOS(payload.pgtoForma)) payload.pgtoParcelas = 1;
 
   // ═══════════════════════════════════════════════════════════════════
   // BLOCO COMISSÃO — precisa de mecânico atribuído E status final
@@ -3044,13 +3133,18 @@ window.salvarOS = async function() {
       ? payload.totalAprovado
       : (oldOSParaAprovacao.totalFaturado ?? oldOSParaAprovacao.totalAprovado ?? oldOSParaAprovacao.total ?? payload.total)
   );
-  const financeiroAtivoMesmoPlanoOS = recebimentosAtivosMesmoPlanoOS.length > 0 &&
+  const pagamentoCombinadoAtualOS = formaPagamentoCombinadaOS(payload.pgtoForma);
+  const financeiroCombinadoAtivoMesmoPlanoOS = pagamentoCombinadoAtualOS && recebimentosAtivosMesmoPlanoOS.length > 0 &&
+    normalizarPagamentoOS(oldOSParaAprovacao.pgtoForma || '') === normalizarPagamentoOS(payload.pgtoForma || '') &&
+    assinaturaPagamentoCombinadoOS(oldOSParaAprovacao.pgtoCombinado || []) === assinaturaPagamentoCombinadoOS(payload.pgtoCombinado || []) &&
+    Math.abs(somaRecebimentosAtivosMesmoPlanoOS - totalPlanoFinanceiroOS) < 0.01;
+  const financeiroAtivoMesmoPlanoOS = financeiroCombinadoAtivoMesmoPlanoOS || (!pagamentoCombinadoAtualOS && recebimentosAtivosMesmoPlanoOS.length > 0 &&
     normalizarPagamentoOS(oldOSParaAprovacao.pgtoForma || '') === normalizarPagamentoOS(payload.pgtoForma || '') &&
     String(oldOSParaAprovacao.pgtoData || '') === String(payload.pgtoData || '') &&
     parcelasPagamentoOS(oldOSParaAprovacao.pgtoForma || '', oldOSParaAprovacao.pgtoParcelas || 1) === payload.pgtoParcelas &&
-    Math.abs(somaRecebimentosAtivosMesmoPlanoOS - totalPlanoFinanceiroOS) < 0.01;
+    Math.abs(somaRecebimentosAtivosMesmoPlanoOS - totalPlanoFinanceiroOS) < 0.01);
 
-  if (payload.pgtoForma && payload.pgtoData && !financeiroAtivoMesmoPlanoOS) {
+  if (payload.pgtoForma && (payload.pgtoData || pagamentoCombinadoAtualOS) && !financeiroAtivoMesmoPlanoOS) {
       // Conceitos:
       //  • formaRecebimento (como cliente pagou): Dinheiro, PIX, Débito,
       //    Crédito (1x / 2x / 3x...), Boleto, Crediário próprio
@@ -3079,6 +3173,17 @@ window.salvarOS = async function() {
         payload.totalGuinchoFinanceiro = guinchoFinanceiro;
         if (guinchoFinanceiro > 0 && (possuiTotalAprovadoAtual || possuiTotalAprovadoAnterior)) {
           payload.totalAprovadoComGuincho = valorFinanceiro;
+        }
+        if (pagamentoCombinadoAtualOS) {
+          const somaCombinadaOS = +(payload.pgtoCombinado || []).reduce((s, p) => s + numBR(p.valor || 0), 0).toFixed(2);
+          if (!payload.pgtoCombinado.length) {
+            window.toast('Informe pelo menos uma forma no recebimento combinado.', 'warn');
+            return;
+          }
+          if (Math.abs(somaCombinadaOS - valorFinanceiro) > 0.01) {
+            window.toast(`Recebimento combinado divergente: soma ${moeda(somaCombinadaOS)} e total da O.S. ${moeda(valorFinanceiro)}.`, 'warn');
+            return;
+          }
         }
         const placaRef  = payload.placa || J.veiculos.find(v => v.id === payload.veiculoId)?.placa || '';
         const cliRef    = J.clientes.find(c => c.id === payload.clienteId)?.nome || payload.cliente || '';
@@ -3131,7 +3236,70 @@ window.salvarOS = async function() {
 
         if (deveLancarFinanceiroOS) {
         // Decide o tipo de fluxo financeiro pela forma de pagamento
-        if (ehAVistaCliente || formasAVistaCliente.some(f => pgtoBase.toLowerCase().includes(f.toLowerCase()))) {
+        if (pagamentoCombinadoAtualOS) {
+          const partes = payload.pgtoCombinado || [];
+          const temCreditoCliente = partes.some(p => formaPagamentoParcelaClienteOS(p.forma));
+          payload.pgtoQuitado = !temCreditoCliente;
+          payload.pgtoResumoCliente = partes.map(p => `${p.forma}${p.parcelas > 1 ? ` ${p.parcelas}x` : ''}: ${moeda(p.valor)}`).join(' + ');
+
+          for (const parte of partes) {
+            const formaParte = parte.forma || 'A Combinar';
+            const formaNormParte = normalizarPagamentoOS(formaParte);
+            const parcParte = parcelasPagamentoComponenteOS(formaParte, parte.parcelas || 1);
+            const valorParte = numBR(parte.valor || 0);
+            const dataParte = parte.data || payload.pgtoData || dataLocalISOOS();
+            const parteAVista = formaNormParte.includes('pix') || formaNormParte.includes('dinheiro') || formaNormParte.includes('debito');
+            const parteCartao = formaPagamentoParcelaOperadoraOS(formaParte) || (formaNormParte.includes('credito') && !formaNormParte.includes('boleto') && !formaNormParte.includes('crediario'));
+            const parteCreditoOficina = formaPagamentoParcelaClienteOS(formaParte);
+            if (parteAVista) {
+              await db.collection('financeiro').add({
+                tenantId: J.tid, tipo: 'Entrada', status: 'Pago',
+                desc: `${descBaseFinanceiroOS} — parte ${parte.indice || ''} (${formaParte})`,
+                valor: valorParte, pgto: formaParte, venc: dataParte, dataPgto: dataParte,
+                osId: osId || null, clienteId: payload.clienteId || null,
+                quitadoPeloCliente: true, origem: 'recebimento_os_combinado',
+                parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
+                createdAt: new Date().toISOString()
+              });
+            } else if (parteCartao) {
+              const valorParcelaParte = valorParte / parcParte;
+              for (let i = 0; i < parcParte; i++) {
+                await db.collection('financeiro').add({
+                  tenantId: J.tid, tipo: 'Entrada', status: 'A Receber',
+                  desc: `Recebimento operadora — ${descBaseFinanceiroOS} — ${formaParte} ${parcParte > 1 ? `(${i + 1}/${parcParte})` : ''}`,
+                  valor: valorParcelaParte, pgto: formaParte, venc: somarDiasISOOS(dataParte, 30 * (i + 1)),
+                  osId: osId || null, clienteId: payload.clienteId || null,
+                  quitadoPeloCliente: true, aReceberDe: 'Operadora de Cartão', origem: 'recebimento_os_combinado',
+                  parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
+                  createdAt: new Date().toISOString()
+                });
+              }
+            } else if (parteCreditoOficina) {
+              const valorParcelaParte = valorParte / parcParte;
+              for (let i = 0; i < parcParte; i++) {
+                await db.collection('financeiro').add({
+                  tenantId: J.tid, tipo: 'Entrada', status: 'Pendente',
+                  desc: `${descBaseFinanceiroOS} — ${formaParte} ${parcParte > 1 ? `(${i + 1}/${parcParte})` : ''}`,
+                  valor: valorParcelaParte, pgto: formaParte, venc: somarMesesISOOS(dataParte, i),
+                  osId: osId || null, clienteId: payload.clienteId || null,
+                  quitadoPeloCliente: false, aReceberDe: 'Cliente', origem: 'recebimento_os_combinado',
+                  parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
+                  createdAt: new Date().toISOString()
+                });
+              }
+            } else {
+              await db.collection('financeiro').add({
+                tenantId: J.tid, tipo: 'Entrada', status: 'Pendente',
+                desc: `${descBaseFinanceiroOS} — parte ${parte.indice || ''} (${formaParte})`,
+                valor: valorParte, pgto: formaParte, venc: dataParte,
+                osId: osId || null, clienteId: payload.clienteId || null,
+                quitadoPeloCliente: false, origem: 'recebimento_os_combinado',
+                parteCombinada: parte, valorTotalOS: valorFinanceiro, valorJaLiquidadoOS, complementoFinanceiroOS,
+                createdAt: new Date().toISOString()
+              });
+            }
+          }
+        } else if (ehAVistaCliente || formasAVistaCliente.some(f => pgtoBase.toLowerCase().includes(f.toLowerCase()))) {
           // ═══ CLIENTE PAGOU À VISTA (Dinheiro/PIX/Débito) ═══
           payload.pgtoQuitado = true;
           payload.pgtoResumoCliente = `${pgtoBase} à vista`;
