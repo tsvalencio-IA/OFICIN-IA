@@ -190,7 +190,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
     <div class="nav-item active" onclick="ir('s-dashboard',this)">📊 Dashboard</div>
     <div class="nav-item" onclick="ir('s-tenants',this)">🏢 Oficinas (Tenants)</div>
     <div class="nav-sec">CONFIGURAÇÃO</div>
-    <div class="nav-item" onclick="ir('s-ia',this)">🤖 IA / Gemini Key</div>
+    <div class="nav-item" onclick="ir('s-ia',this)">🤖 IA Local / Cérebro</div>
     <div class="nav-item" onclick="ir('s-saas',this)">💰 Financeiro SaaS</div>
     <div class="nav-sec">SUPORTE</div>
     <div class="nav-item" onclick="ir('s-auditoria',this)">🔒 Auditoria Global</div>
@@ -221,7 +221,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
       <div class="j-card">
         <div class="j-card-head"><div class="j-card-title">🏢 OFICINAS CADASTRADAS</div><button class="btn-primary" onclick="ir('s-tenants',document.querySelector('.nav-item:nth-child(2)'));prepTenant('add');abrirModal('modalTenant')">+ NOVA OFICINA</button></div>
         <div style="padding:0;overflow-x:auto;">
-          <table class="j-table"><thead><tr><th>Oficina</th><th>Nicho</th><th>Acesso</th><th>Status</th><th>Plano</th><th>IA Key</th></tr></thead><tbody id="dashTenants"></tbody></table>
+          <table class="j-table"><thead><tr><th>Oficina</th><th>Nicho</th><th>Acesso</th><th>Status</th><th>Plano</th><th>IA Local</th></tr></thead><tbody id="dashTenants"></tbody></table>
         </div>
       </div>
     </div>
@@ -250,19 +250,19 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
     <div class="section" id="s-ia">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
         <div class="j-card">
-          <div class="j-card-head"><div class="j-card-title">🔑 CHAVES GLOBAIS DA API</div></div>
+          <div class="j-card-head"><div class="j-card-title">🔑 CONFIGURAÇÃO IA LOCAL</div></div>
           <div style="padding:18px;">
-            <div class="form-group"><label class="j-label">Google Gemini API Key (Global)</label><input type="password" class="j-input" id="iaGeminiKey" placeholder="AIzaSy..."></div>
+            <div class="form-group"><label class="j-label">Motor ativo</label><div class="j-input" style="height:auto;min-height:42px;color:var(--success);display:flex;align-items:center;">IA local por dados do tenant, regras internas e cérebro JSON. Não usa chave externa.</div></div>
             <div class="form-group"><label class="j-label">Cloudinary Cloud Name</label><input class="j-input" id="iaCloudName" placeholder="dmuvm1o6m"></div>
             <div class="form-group"><label class="j-label">Cloudinary Upload Preset</label><input class="j-input" id="iaCloudPreset" placeholder="evolution"></div>
             <button class="btn-cyan" onclick="salvarConfigIA()" style="width:100%;padding:10px;justify-content:center;">SALVAR E PROPAGAR PARA TODOS OS TENANTS</button>
           </div>
         </div>
         <div class="j-card">
-          <div class="j-card-head"><div class="j-card-title">🎙️ TESTAR GEMINI</div></div>
+          <div class="j-card-head"><div class="j-card-title">🎙️ TESTAR IA LOCAL</div></div>
           <div style="padding:18px;">
-            <div class="form-group"><label class="j-label">Pergunta de Teste</label><textarea class="j-input" id="iaTestInput" rows="3" placeholder="Teste a API aqui..." style="resize:vertical;min-height:80px;"></textarea></div>
-            <button class="btn-primary" onclick="testarGemini()" style="margin-bottom:12px;">TESTAR AGORA</button>
+            <div class="form-group"><label class="j-label">Pergunta de Teste</label><textarea class="j-input" id="iaTestInput" rows="3" placeholder="Pergunte sobre tenants, módulos, auditoria ou riscos carregados..." style="resize:vertical;min-height:80px;"></textarea></div>
+            <button class="btn-primary" onclick="testarCerebroLocalSuperadmin()" style="margin-bottom:12px;">TESTAR AGORA</button>
             <div id="iaTestResult" style="background:rgba(0,0,0,0.3);border-radius:3px;padding:12px;font-size:0.8rem;min-height:60px;color:var(--muted2);display:none;font-family:var(--fm);line-height:1.6;"></div>
           </div>
         </div>
@@ -388,7 +388,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
       <div class="form-group"><label class="j-label">Status da Licença</label>
         <select class="j-select" id="tStatus"><option value="Online">Online (Ativo)</option><option value="Trial">Trial</option><option value="Bloqueado">Bloqueado</option></select>
       </div>
-      <div class="form-group"><label class="j-label">Gemini API Key Própria (opcional)</label><input class="j-input" id="tGemini" placeholder="AIzaSy... (deixe vazio para usar a global)"></div>
+      <div class="form-group"><label class="j-label">IA local</label><input class="j-input" value="Cérebro interno ativo neste tenant" disabled></div>
     </div>
     <div class="form-row c2">
       <div class="form-group"><label class="j-label">Cloudinary Cloud Name</label><input class="j-input" id="tCloudName" placeholder="dmuvm1o6m"></div>
@@ -441,7 +441,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
         <label class="mod-check"><input type="checkbox" id="mCrm" value="crm"> 👥 CRM / Clientes</label>
         <label class="mod-check"><input type="checkbox" id="mEst" value="estoque"> 📦 Estoque</label>
         <label class="mod-check"><input type="checkbox" id="mFin" value="financeiro"> 💰 Financeiro / DRE</label>
-        <label class="mod-check"><input type="checkbox" id="mIA" value="ia"> 🤖 IA / Gemini</label>
+        <label class="mod-check"><input type="checkbox" id="mIA" value="ia"> 🤖 IA Local / Cérebro</label>
         <label class="mod-check"><input type="checkbox" id="mChat" value="chat"> 💬 Chat CRM</label>
         <label class="mod-check"><input type="checkbox" id="mAgd" value="agenda"> 📅 Agenda</label>
         <label class="mod-check"><input type="checkbox" id="mRH" value="rh"> 👷 Equipe / RH</label>
@@ -453,9 +453,9 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
         <label class="mod-check"><input type="checkbox" id="mComissaoVendas" value="comissaoVendas"> 💸 Comissão sobre vendas</label>
         <label class="mod-check"><input type="checkbox" id="mTabelaTempa" value="tabelaTempa" checked> 📖 Tabela Tempária SINDIREPA</label>
         <label class="mod-check"><input type="checkbox" id="mCilia" value="cilia" checked> 🔎 Pesquisa Cília API</label>
-        <label class="mod-check"><input type="checkbox" id="mOrcamentoAutomatizado" value="orcamentoAutomatizado" checked> Orcamento automatizado por regras</label>
         <label class="mod-check"><input type="checkbox" id="mCotacao" value="cotacao" checked> Cotacao de pecas / fornecedores</label>
         <label class="mod-check"><input type="checkbox" id="mClienteOficial" value="clienteOficial" checked> Cliente Oficial / orgao publico</label>
+        <label class="mod-check"><input type="checkbox" id="smClienteTempaOficial" checked> Fiscal pode consultar Tabela Temparia</label>
         <label class="mod-check"><input type="checkbox" id="mAssinatura" value="assinatura" checked> Assinatura digital</label>
         <label class="mod-check"><input type="checkbox" id="mPDF" value="pdf" checked> Exportar PDF</label>
         <label class="mod-check"><input type="checkbox" id="mXLSX" value="xlsx" checked> Exportar XLSX/PMSP</label>
@@ -672,13 +672,13 @@ function renderDashboard(){
   // Tabela resumo
   $('dashTenants').innerHTML=allTenants.slice(0,8).map(t=>{
     const stCls=t.status==='Online'?'pill-green':t.status==='Trial'?'pill-warn':'pill-danger';
-    return `<tr><td><strong>${t.nomeFantasia||'-'}</strong></td><td><span class="pill pill-purple">${t.nicho||'-'}</span></td><td style="font-family:var(--fm);font-size:0.72rem;color:var(--cyan)">${t.usuario||'-'}</td><td><span class="pill ${stCls}">${t.status||'?'}</span></td><td style="font-family:var(--fm);font-size:0.72rem">${t.plano||'trial'}</td><td style="text-align:center">${t.apiKeys?.gemini?'✅':'❌'}</td></tr>`;
+    return `<tr><td><strong>${t.nomeFantasia||'-'}</strong></td><td><span class="pill pill-purple">${t.nicho||'-'}</span></td><td style="font-family:var(--fm);font-size:0.72rem;color:var(--cyan)">${t.usuario||'-'}</td><td><span class="pill ${stCls}">${t.status||'?'}</span></td><td style="font-family:var(--fm);font-size:0.72rem">${t.plano||'trial'}</td><td style="text-align:center">${t.modulos?.ia===false?'Bloq.':'Ativa'}</td></tr>`;
   }).join('')||'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted);font-family:var(--fm);font-size:0.75rem">Nenhum tenant cadastrado</td></tr>';
 }
 
 function renderTenants(filter=''){
   const list=filter?allTenants.filter(t=>(t.nomeFantasia||'').toLowerCase().includes(filter.toLowerCase())):allTenants;
-  const mods_map={os:'O.S.',crm:'CRM',estoque:'Est.',financeiro:'Fin.',ia:'IA',chat:'Chat',agenda:'Agd.',rh:'RH',comissoes:'Comiss.',autoPecas:'Autopeças',vendaTerceiros:'Terceiros',varejo:'Varejo',atacado:'Atacado',comissaoVendas:'Com.Vendas',tabelaTempa:'Tempa',orcamentoAutomatizado:'Orc.Auto'};
+  const mods_map={os:'O.S.',crm:'CRM',estoque:'Est.',financeiro:'Fin.',ia:'IA',chat:'Chat',agenda:'Agd.',rh:'RH',comissoes:'Comiss.',autoPecas:'Autopeças',vendaTerceiros:'Terceiros',varejo:'Varejo',atacado:'Atacado',comissaoVendas:'Com.Vendas',tabelaTempa:'Tempa'};
   $('tbTenants').innerHTML=list.map(t=>{
     const stCls=t.status==='Online'?'pill-green':t.status==='Trial'?'pill-warn':'pill-danger';
     const mods=Object.entries(t.modulos||{}).filter(([,v])=>v).map(([k])=>`<span class="pill pill-purple" style="font-size:0.5rem;padding:1px 6px">${mods_map[k]||k}</span>`).join(' ');
@@ -755,13 +755,13 @@ function normalizarSlugTenant(raw,nome){
 }
 
 function prepTenant(mode,id=null){
-  ['tId','tNome','tUser','tSenha','tAdminEmails','tWpp','tGemini','tCloudName','tCloudPreset','tLogoFile','tAssinaturaFile',...CAMPOS_DADOS_OFICINA,...CAMPOS_FIREBASE_OFICINA].forEach(f=>{if($(f))$(f).value='';});
-  ['mOS','mCrm','mEst','mFin','mIA','mChat','mAgd','mRH','mComissoes','mAutoPecas','mVendaTerceiros','mVarejo','mAtacado','mComissaoVendas','mTabelaTempa','mCilia','mOrcamentoAutomatizado','mCotacao','mClienteOficial','mAssinatura','mPDF','mXLSX','mAuditoria','mRelatorios','mExportacoes','mWhatsappBot'].forEach(f=>{if($(f))$(f).checked=false;});
+  ['tId','tNome','tUser','tSenha','tAdminEmails','tWpp','tCloudName','tCloudPreset','tLogoFile','tAssinaturaFile',...CAMPOS_DADOS_OFICINA,...CAMPOS_FIREBASE_OFICINA].forEach(f=>{if($(f))$(f).value='';});
+  ['mOS','mCrm','mEst','mFin','mIA','mChat','mAgd','mRH','mComissoes','mAutoPecas','mVendaTerceiros','mVarejo','mAtacado','mComissaoVendas','mTabelaTempa','mCilia','mCotacao','mClienteOficial','smClienteTempaOficial','mAssinatura','mPDF','mXLSX','mAuditoria','mRelatorios','mExportacoes','mWhatsappBot'].forEach(f=>{if($(f))$(f).checked=false;});
   $('tStatus').value='Online'; $('tNicho').value='carros'; $('tPlano').value='trial';
   $('tCloudName').value='dmuvm1o6m'; $('tCloudPreset').value='evolution';
   $('modalTenantTitle').innerText='NOVA OFICINA (TENANT)';
   // Habilita módulos padrão
-  ['mOS','mCrm','mEst','mFin','mAutoPecas','mVendaTerceiros','mVarejo','mComissaoVendas','mTabelaTempa','mCilia','mOrcamentoAutomatizado','mCotacao','mClienteOficial','mAssinatura','mPDF','mXLSX','mAuditoria','mRelatorios','mExportacoes'].forEach(f=>{if($(f))$(f).checked=true;});
+  ['mOS','mCrm','mEst','mFin','mAutoPecas','mVendaTerceiros','mVarejo','mComissaoVendas','mTabelaTempa','mCilia','mCotacao','mClienteOficial','smClienteTempaOficial','mAssinatura','mPDF','mXLSX','mAuditoria','mRelatorios','mExportacoes'].forEach(f=>{if($(f))$(f).checked=true;});
   if(mode==='edit'&&id){
     const t=allTenants.find(x=>x.id===id); if(!t) return;
     $('tId').value=t.id; $('tNome').value=t.nomeFantasia||''; $('tUser').value=t.usuario||'';
@@ -789,7 +789,7 @@ function prepTenant(mode,id=null){
     if($('tAssinaturaCargo')) $('tAssinaturaCargo').value=ass.cargo||ass.funcao||'Responsável técnico';
     if($('tAssinaturaDocumento')) $('tAssinaturaDocumento').value=ass.documento||ass.cpfCnpj||'';
     if($('tAssinaturaUrl')) $('tAssinaturaUrl').value=ass.url||ass.assinaturaUrl||ass.imagemUrl||'';
-    $('tGemini').value=t.apiKeys?.gemini||''; $('tCloudName').value=t.apiKeys?.cloudName||'dmuvm1o6m';
+    $('tCloudName').value=t.apiKeys?.cloudName||'dmuvm1o6m';
     $('tCloudPreset').value=t.apiKeys?.cloudPreset||'evolution';
     const fb=t.firebaseConfig||{};
     $('tFbApiKey').value=fb.apiKey||'';
@@ -821,9 +821,9 @@ function prepTenant(mode,id=null){
     if($('mComissaoVendas')) $('mComissaoVendas').checked=m.comissaoVendas !== false && (!!m.autoPecas || !!m.estoque);
     if($('mTabelaTempa')) $('mTabelaTempa').checked=m.tabelaTempa !== false; // default ligado
     if($('mCilia')) $('mCilia').checked=m.cilia !== false; // default ligado
-    if($('mOrcamentoAutomatizado')) $('mOrcamentoAutomatizado').checked=m.orcamentoAutomatizado !== false;
     if($('mCotacao')) $('mCotacao').checked=m.cotacao !== false;
     if($('mClienteOficial')) $('mClienteOficial').checked=m.clienteOficial !== false;
+    if($('smClienteTempaOficial')) $('smClienteTempaOficial').checked=(t.submodulos?.cliente?.tabelaTempaOficial !== false);
     if($('mAssinatura')) $('mAssinatura').checked=m.assinatura !== false;
     if($('mPDF')) $('mPDF').checked=m.pdf !== false;
     if($('mXLSX')) $('mXLSX').checked=m.xlsx !== false;
@@ -897,7 +897,6 @@ function montarSubmodulosComerciais(){
     comissaoVendas:$('mComissaoVendas')?$('mComissaoVendas').checked:false,
     tabelaTempa:$('mTabelaTempa')?$('mTabelaTempa').checked:true,
     cilia:$('mCilia')?$('mCilia').checked:true,
-    orcamentoAutomatizado:$('mOrcamentoAutomatizado')?$('mOrcamentoAutomatizado').checked:true,
     cotacao:$('mCotacao')?$('mCotacao').checked:true,
     clienteOficial:$('mClienteOficial')?$('mClienteOficial').checked:true,
     assinatura:$('mAssinatura')?$('mAssinatura').checked:true,
@@ -909,14 +908,14 @@ function montarSubmodulosComerciais(){
     whatsappBot:$('mWhatsappBot')?$('mWhatsappBot').checked:false
   };
   return {
-    os:{criar:mod.os, editar:mod.os, aprovar:mod.os, salvarContinuar:mod.os, pdf:mod.os&&mod.pdf, xlsx:mod.os&&mod.xlsx, assinatura:mod.os&&mod.assinatura, guincho:mod.os, temparia:mod.os&&mod.tabelaTempa, orcamentoAutomatizado:mod.os&&mod.orcamentoAutomatizado, execucaoEquipe:mod.os&&mod.rh, auditoria:mod.os&&mod.auditoria, cotacao:mod.os&&mod.cotacao},
+    os:{criar:mod.os, editar:mod.os, aprovar:mod.os, salvarContinuar:mod.os, pdf:mod.os&&mod.pdf, xlsx:mod.os&&mod.xlsx, assinatura:mod.os&&mod.assinatura, guincho:mod.os, temparia:mod.os&&mod.tabelaTempa, execucaoEquipe:mod.os&&mod.rh, auditoria:mod.os&&mod.auditoria, cotacao:mod.os&&mod.cotacao},
     financeiro:{receitas:mod.financeiro, despesas:mod.financeiro, boletos:mod.financeiro, dre:mod.financeiro, contasPagar:mod.financeiro, contasReceber:mod.financeiro, boletosNF:mod.financeiro, financeiroPorOS:mod.financeiro&&mod.os, receitasBalcao:mod.financeiro&&mod.autoPecas, comissoesVendas:mod.financeiro&&mod.comissaoVendas},
     nfXml:{entradaXml:mod.estoque, entradaManual:mod.estoque, fornecedores:mod.estoque, vincularOS:mod.estoque&&mod.os, estoque:mod.estoque, devolucao:mod.estoque, garantia:mod.estoque, financeiroNF:mod.estoque&&mod.financeiro},
     autoPecas:{balcao:mod.autoPecas, terceiros:mod.autoPecas&&mod.vendaTerceiros, varejo:mod.autoPecas&&mod.varejo, atacado:mod.autoPecas&&mod.atacado, baixaEstoque:mod.autoPecas&&mod.estoque, financeiro:mod.autoPecas&&mod.financeiro, comissaoVendas:mod.autoPecas&&mod.comissaoVendas},
     ia:{jarvis:mod.ia, equipe:mod.ia&&mod.rh, superadmin:mod.ia, cliente:mod.ia&&mod.crm},
-    cliente:{portalCliente:mod.crm, clienteOficial:mod.crm&&mod.os&&mod.clienteOficial, mensagens:mod.crm&&mod.chat, aprovacaoOnline:mod.crm&&mod.os, documentos:mod.crm&&mod.os},
+    cliente:{portalCliente:mod.crm, clienteOficial:mod.crm&&mod.os&&mod.clienteOficial, tabelaTempaOficial:mod.crm&&mod.os&&mod.clienteOficial&&mod.tabelaTempa&&($('smClienteTempaOficial') ? $('smClienteTempaOficial').checked : true), mensagens:mod.crm&&mod.chat, aprovacaoOnline:mod.crm&&mod.os, documentos:mod.crm&&mod.os},
     documentos:{pdf:mod.pdf&&mod.os, xlsx:mod.xlsx&&mod.os, templates:mod.templates!==false, assinatura:mod.assinatura&&mod.os},
-    integracoes:{cilia:mod.cilia, tabelaTempa:mod.tabelaTempa, orcamentoAutomatizado:mod.orcamentoAutomatizado&&mod.os, cotacao:mod.cotacao, whatsappBot:mod.whatsappBot&&mod.chat, pwa:true, apk:true, exe:true}
+    integracoes:{cilia:mod.cilia, tabelaTempa:mod.tabelaTempa, cotacao:mod.cotacao, whatsappBot:mod.whatsappBot&&mod.chat, pwa:true, apk:true, exe:true}
   };
 }
 
@@ -926,12 +925,12 @@ function avisosDependenciasModulos(){
   if($('mEst')?.checked && !$('mFin')?.checked) avisos.push('NF/XML sem Financeiro não gera contas a pagar.');
   if($('mRH')?.checked && !$('mOS')?.checked) avisos.push('Equipe depende de O.S. para execução.');
   if($('mTabelaTempa')?.checked && !$('mOS')?.checked) avisos.push('Tempária depende de O.S. para aplicar TMO.');
-  if($('mOrcamentoAutomatizado')?.checked && !$('mOS')?.checked) avisos.push('Orcamento automatizado depende de O.S.');
   if($('mAutoPecas')?.checked && !$('mEst')?.checked) avisos.push('Autopeças precisa de Estoque para baixa e margem por item.');
   if($('mAutoPecas')?.checked && !$('mFin')?.checked) avisos.push('Autopeças sem Financeiro registra venda, mas não gera caixa/contas a receber.');
   if($('mComissaoVendas')?.checked && !$('mAutoPecas')?.checked) avisos.push('Comissão de vendas depende do módulo Autopeças/Balcão.');
   if($('mCotacao')?.checked && (!$('mOS')?.checked || !$('mEst')?.checked)) avisos.push('Cotacao de pecas depende de O.S. e Estoque/Fornecedores.');
   if($('mClienteOficial')?.checked && (!$('mOS')?.checked || !$('mCrm')?.checked)) avisos.push('Cliente Oficial depende de O.S. e CRM/Clientes.');
+  if($('smClienteTempaOficial')?.checked && (!$('mClienteOficial')?.checked || !$('mTabelaTempa')?.checked)) avisos.push('Consulta Tempária do fiscal depende de Cliente Oficial e Tabela Tempária.');
   if($('mPDF')?.checked && !$('mOS')?.checked) avisos.push('PDF depende de O.S.');
   if($('mXLSX')?.checked && !$('mOS')?.checked) avisos.push('XLSX/PMSP depende de O.S.');
   if($('mAssinatura')?.checked && !$('mOS')?.checked) avisos.push('Assinatura digital depende de O.S.');
@@ -941,7 +940,6 @@ function avisosDependenciasModulos(){
 
 async function salvarTenant(){
   if(!$v('tNome')||!$v('tUser')||!$v('tSenha')){toast('⚠ Preencha nome, usuário e senha','warn');return;}
-  const geminiKey=$v('tGemini');
   const firebaseConfig=montarFirebaseOficina();
   const adminEmailsParsed=normalizarEmailsAdminTenant($v('tAdminEmails'));
   if(adminEmailsParsed.invalidos.length){
@@ -1005,7 +1003,6 @@ async function salvarTenant(){
     },
     enderecoCompleto:montarEnderecoOficina(),
     apiKeys:{
-      gemini:geminiKey||await buscarKeyGlobal(),
       cloudName:$v('tCloudName')||'dmuvm1o6m',
       cloudPreset:$v('tCloudPreset')||'evolution'
     },
@@ -1045,7 +1042,6 @@ async function salvarTenant(){
       comissaoVendas:$('mComissaoVendas')?$('mComissaoVendas').checked:false,
       tabelaTempa:$('mTabelaTempa')?$('mTabelaTempa').checked:true,  // default true
       cilia:$('mCilia')?$('mCilia').checked:true,
-      orcamentoAutomatizado:$('mOrcamentoAutomatizado')?$('mOrcamentoAutomatizado').checked:true,
       cotacao:$('mCotacao')?$('mCotacao').checked:true,
       clienteOficial:$('mClienteOficial')?$('mClienteOficial').checked:true,
       assinatura:$('mAssinatura')?$('mAssinatura').checked:true,
@@ -1095,18 +1091,9 @@ async function carregarConfigIA(){
   try{
     const res=await fetch('https://thiaguinho-40a14-default-rtdb.firebaseio.com/admin_config.json');
     const cfg=await res.json();
-    if(cfg?.gemini_api_key) $('iaGeminiKey').value=cfg.gemini_api_key;
     if(cfg?.cloudinary_name) $('iaCloudName').value=cfg.cloudinary_name;
     if(cfg?.cloudinary_preset) $('iaCloudPreset').value=cfg.cloudinary_preset;
   }catch(e){}
-}
-
-async function buscarKeyGlobal(){
-  try{
-    const res=await fetch('https://thiaguinho-40a14-default-rtdb.firebaseio.com/admin_config/gemini_api_key.json');
-    const key=await res.json();
-    return key||'';
-  }catch(e){return '';}
 }
 
 function escSA(v){
@@ -1116,11 +1103,11 @@ function escSA(v){
 function montarContextoSuperadminIA(){
   const ativos=allTenants.filter(t=>t.status==='Online').length;
   const bloqueados=allTenants.filter(t=>t.status==='Bloqueado').length;
-  const semGemini=allTenants.filter(t=>!t.apiKeys?.gemini).length;
+  const iaAtiva=allTenants.filter(t=>t.modulos?.ia!==false).length;
   const modCount=nome=>allTenants.filter(t=>t.modulos?.[nome]!==false).length;
   return [
     `Tenants carregados: ${allTenants.length}`,
-    `Online: ${ativos}; Bloqueados: ${bloqueados}; Sem chave Gemini propria/global: ${semGemini}`,
+    `Online: ${ativos}; Bloqueados: ${bloqueados}; IA local ativa: ${iaAtiva}`,
     `Modulos habilitados - OS:${modCount('os')} Financeiro:${modCount('financeiro')} Estoque:${modCount('estoque')} IA:${modCount('ia')} Chat:${modCount('chat')}`,
     `Auditoria carregada: ${allAudit.length} evento(s). Financeiro SaaS carregado: ${allSaasFin.length} lancamento(s).`,
     `Tenants recentes: ${allTenants.slice(0,20).map(t=>`${t.nomeFantasia||t.id} status ${t.status||'N/I'} plano ${t.plano||'N/I'} modulos ${Object.entries(t.modulos||{}).filter(([,v])=>v!==false).map(([k])=>k).join('/')||'N/I'}`).join(' | ')}`
@@ -1129,75 +1116,36 @@ function montarContextoSuperadminIA(){
 
 function respostaLocalSuperadminIA(prompt, erro){
   const ctx=montarContextoSuperadminIA();
-  return `<b>Resposta local do Superadmin</b>${erro?`<br><small>API indisponivel: ${escSA(erro)}</small>`:''}<br><br>${escSA(ctx).replace(/\n/g,'<br>')}<br><br><b>Leitura:</b> use este painel para auditar tenants, modulos, chaves Gemini e eventos. Se a pergunta depender de dados que nao estao carregados no Superadmin, nao ha dado registrado nesta tela.`;
+  const pergunta=String(prompt||'').trim();
+  const foco=/bloquead/i.test(pergunta)?'Priorize tenants bloqueados e impactos de modulo.':/financeir|mrr|receita/i.test(pergunta)?'Priorize MRR, status financeiro SaaS e inadimplencia carregada.':/modul|permiss/i.test(pergunta)?'Priorize modulos habilitados e bloqueios por tenant.':'Priorize resumo operacional e riscos visiveis.';
+  return `<b>Resposta local do Superadmin</b>${erro?`<br><small>Observacao local: ${escSA(erro)}</small>`:''}<br><br>${escSA(ctx).replace(/\n/g,'<br>')}<br><br><b>Leitura:</b> ${escSA(foco)} Se a pergunta depender de dados que nao estao carregados no Superadmin, nao ha dado registrado nesta tela.`;
 }
 
 async function salvarConfigIA(){
-  const key=$v('iaGeminiKey'), cloud=$v('iaCloudName'), preset=$v('iaCloudPreset');
+  const cloud=$v('iaCloudName'), preset=$v('iaCloudPreset');
   try{
-    // Salva no RTDB global
-    await fetch('https://thiaguinho-40a14-default-rtdb.firebaseio.com/admin_config/gemini_api_key.json',{method:'PUT',body:JSON.stringify(key)});
     await fetch('https://thiaguinho-40a14-default-rtdb.firebaseio.com/admin_config/cloudinary_name.json',{method:'PUT',body:JSON.stringify(cloud)});
     await fetch('https://thiaguinho-40a14-default-rtdb.firebaseio.com/admin_config/cloudinary_preset.json',{method:'PUT',body:JSON.stringify(preset)});
-    // Propaga para todos os tenants que não têm key própria
     const batch=db.batch();
     allTenants.forEach(t=>{
-      if(!t.apiKeys?.gemini&&key){
-        batch.update(db.collection('oficinas').doc(t.id),{'apiKeys.gemini':key,'apiKeys.cloudName':cloud,'apiKeys.cloudPreset':preset});
-        try{batch.update(db.collection('tenants').doc(t.id),{'apiKeys.gemini':key});}catch(e){}
-      }
+      batch.update(db.collection('oficinas').doc(t.id),{'apiKeys.cloudName':cloud,'apiKeys.cloudPreset':preset});
+      try{batch.set(db.collection('tenants').doc(t.id),{apiKeys:{cloudName:cloud,cloudPreset:preset}},{merge:true});}catch(e){}
     });
     await batch.commit();
-    toast('✓ CONFIG SALVA E PROPAGADA PARA '+allTenants.filter(t=>!t.apiKeys?.gemini).length+' TENANTS');
+    toast('✓ CONFIG LOCAL SALVA E CLOUDINARY PROPAGADO PARA '+allTenants.length+' TENANTS');
   }catch(e){toast('✕ ERRO: '+e.message,'err');}
 }
 
-async function testarGemini(){
-  const key=$v('iaGeminiKey'); const prompt=$v('iaTestInput');
-  if(!key){toast('⚠ Configure a key primeiro','warn');return;}
-  if(!prompt){toast('⚠ Digite uma pergunta','warn');return;}
-  const res=$('iaTestResult'); res.style.display='block'; res.innerText='⏳ Chamando Gemini...';
-  try{
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})});
-    const data=await r.json();
-    if(!r.ok) throw new Error(data.error?.message||'Erro HTTP '+r.status);
-    res.innerText=data.candidates?.[0]?.content?.parts?.[0]?.text||'Sem resposta';
-    res.style.color='var(--success)';
-  }catch(e){res.innerText='✕ '+e.message;res.style.color='var(--danger)';}
-}
-
-async function testarGemini(){
-  const key=$v('iaGeminiKey');
+async function testarCerebroLocalSuperadmin(){
   const prompt=$v('iaTestInput');
   if(!prompt){toast('Digite uma pergunta','warn');return;}
   const res=$('iaTestResult');
   res.style.display='block';
-  res.innerText='Chamando IA...';
-  if(!key){
-    res.innerHTML=respostaLocalSuperadminIA(prompt,'chave Gemini nao configurada');
-    res.style.color='var(--muted2)';
-    return;
-  }
-  try{
-    const systemPrompt=`Voce e o thIAguinho Superadmin. Use somente o contexto abaixo para auditar tenants, modulos, chaves e riscos do SaaS. Nao invente dados e diga quando nao houver dado carregado.\n\n${montarContextoSuperadminIA()}`;
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        contents:[{parts:[{text:prompt}]}],
-        systemInstruction:{parts:[{text:systemPrompt}]},
-        generationConfig:{temperature:.35,maxOutputTokens:1200}
-      })
-    });
-    const data=await r.json();
-    if(!r.ok) throw new Error(data.error?.message||'Erro HTTP '+r.status);
-    res.innerHTML=escSA(data.candidates?.[0]?.content?.parts?.map(p=>p.text).filter(Boolean).join('\n')||'Sem resposta').replace(/\n/g,'<br>');
-    res.style.color='var(--success)';
-  }catch(e){
-    res.innerHTML=respostaLocalSuperadminIA(prompt,e.message||e);
-    res.style.color='var(--muted2)';
-  }
+  res.innerText='Consultando dados internos...';
+  res.innerHTML=respostaLocalSuperadminIA(prompt);
+  res.style.color='var(--muted2)';
 }
+window.testarCerebroLocal = testarCerebroLocalSuperadmin;
 
 // SAAS FIN
 function prepSaasFin(){

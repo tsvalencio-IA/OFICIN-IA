@@ -12,7 +12,7 @@
  *
  * Powered by thIAguinho Soluções Digitais
  */
-const CACHE_VERSION = 'thiaguinho-operacional-fiscal-financeiro-20260518-36';
+const CACHE_VERSION = 'thiaguinho-operacional-fiscal-financeiro-20260601-52';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -27,6 +27,7 @@ const PRECACHE_URLS_RAW = [
   './clienteOficial.html',
   './c.html',
   './cotacao.html',
+  './gerar_conhecimento.html',
   './superadmin.html',
   './manifest.json',
   './favicon.ico',
@@ -39,6 +40,7 @@ const PRECACHE_URLS_RAW = [
   './js/financeiro.js',
   './js/nfe-real-pro.js',
   './js/cotacoes.js',
+  './js/valoria-integracao.js',
   './js/cotacao-fornecedor.js',
   './js/exportar-pmsp.js',
   './js/os.js',
@@ -49,18 +51,33 @@ const PRECACHE_URLS_RAW = [
   './js/config.js',
   './js/links-publicos.js',
   './js/tenant-modules.js',
+  './js/brasil-cadastros.js',
   './js/hardening-comercial.js',
   './js/uix-theme-fix.js',
   './js/hardening-operacional-20260515.js',
+  './js/operacional-cadastros-nf-fix-20260518.js',
+  './js/superadmin-cadastros-fix-20260518.js',
   './js/theme.js',
   './js/fiscal.js',
   './js/final-1010-regras-os.js',
   './js/importar-orcamento-os.js',
   './js/assinatura-os.js',
   './assets/templates/I-30003_PLANILHA_DE_CUSTOS.xlsx',
+  './assets/vendor/pdf.min.js',
+  './assets/vendor/pdf.worker.min.js',
+  './assets/vendor/jszip.min.js',
   './data/tabela-tempa.min.json',
   './elm327-service.js',
-  './elm-bridge.js'
+  './elm-bridge.js',
+  './scripts/devtools/README_DEVTOOLS_TESTES.txt',
+  './scripts/devtools/TESTE_DEVTOOLS_SUPERADMIN.js',
+  './scripts/devtools/TESTE_DEVTOOLS_JARVIS.js',
+  './scripts/devtools/TESTE_DEVTOOLS_EQUIPE.js',
+  './scripts/devtools/TESTE_DEVTOOLS_CLIENTE.js',
+  './scripts/devtools/TESTE_DEVTOOLS_CLIENTEOFICIAL.js',
+  './scripts/devtools/TESTE_DEVTOOLS_VALORIA_PRECIA.js',
+  './scripts/devtools/GERAR_TENANT_TESTE_300_FLUXO.js',
+  './scripts/devtools/GERAR_TIAO_MOTOS_DEMO_3_MESES.js'
 ];
 const SW_BASE = self.location.pathname.includes('/js/service-worker.js') ? '../' : './';
 const PRECACHE_URLS = PRECACHE_URLS_RAW.map(url => url === './' ? SW_BASE : SW_BASE + url.replace(/^\.\//, ''));
@@ -101,14 +118,13 @@ self.addEventListener('fetch', (event) => {
   // Pula requisições que não são GET
   if (request.method !== 'GET') return;
 
-  // Pula chamadas para Firebase/Cloudinary/Gemini (sempre online)
+  // Pula chamadas para Firebase/Cloudinary (sempre online)
   const url = new URL(request.url);
   if (
     url.hostname.includes('firebaseio.com') ||
     url.hostname.includes('firestore.googleapis.com') ||
     url.hostname.includes('googleapis.com') ||
     url.hostname.includes('cloudinary.com') ||
-    url.hostname.includes('generativelanguage.googleapis.com') ||
     url.hostname.includes('gstatic.com')
   ) {
     return; // deixa o browser fazer normal sem cache

@@ -1112,7 +1112,7 @@ function _renderChat(msgs) {
   container.innerHTML = msgs.map(m => {
     const t = m.ts ? new Date(m.ts).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : '';
     const dir = m.sender === 'cliente' ? 'outgoing' : 'incoming';
-    const author = m.sender === 'cliente' ? 'Você' : (P.oficina?.nomeFantasia || 'Oficina');
+    const author = m.sender === 'cliente' ? 'Você' : (m.autorTipo === 'equipe' && m.autorNome ? `${m.autorNome}${m.autorCargo ? ' (' + m.autorCargo + ')' : ''}` : (P.oficina?.nomeFantasia || 'Oficina'));
     return `<div class="chat-msg ${dir}"><div class="chat-author">${_escapeHtmlCli(author)}</div>${_formatarMidiaChat(m.msg)}<div class="chat-time">${t}</div></div>`;
   }).join('');
   container.scrollTop = container.scrollHeight;

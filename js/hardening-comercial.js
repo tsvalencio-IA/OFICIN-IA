@@ -370,49 +370,14 @@
     iaAddUser(msg);
     const lid = iaAddBot('<span class="j-spinner"></span> Analisando contexto real...');
     try {
-      const local = typeof window.thiaResponderLocal === 'function' ? window.thiaResponderLocal(msg) : null;
-      if (local) {
-        iaReplaceBot(lid, local);
-        return;
-      }
+      if (typeof window.thiaCarregarCerebroGlobal === 'function') await window.thiaCarregarCerebroGlobal();
+      const local = typeof window.thiaResponderLocal === 'function'
+        ? window.thiaResponderLocal(msg, { perfil })
+        : iaFallback(msg, perfil, 'motor local indisponivel');
+      iaReplaceBot(lid, local);
+      return;
     } catch (e) {
       console.warn('[thIAguinho IA local]', e);
-    }
-    const key = window.J?.gemini || window.J?.oficina?.apiKeys?.gemini || sessionStorage.getItem('j_gemini') || '';
-    if (!key) {
-      iaReplaceBot(lid, iaFallback(msg, perfil, 'chave Gemini nao configurada'));
-      return;
-    }
-    try {
-      const systemPrompt = `Voce e o thIAguinho, consultor tecnico e operacional de oficina.
-Use somente o contexto estruturado abaixo.
-Nao invente dado. Diferencie orcamento, aprovacao, execucao, compra, estoque e financeiro.
-Nunca diga que peca foi trocada se ela apenas foi orcada, comprada ou aprovada.
-Cliente/equipe nao recebem dados internos nem valores quando o perfil nao permite.
-Responda em portugues do Brasil, direto e pratico.
-
-${iaBuildContext(perfil, msg)}`;
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: msg }] }],
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          generationConfig: { temperature: 0.35, maxOutputTokens: 1600 },
-          safetySettings: [
-            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
-            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
-            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
-            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' }
-          ]
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
-      const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join('\n');
-      if (!text) throw new Error(data?.promptFeedback?.blockReason || 'resposta vazia');
-      iaReplaceBot(lid, htmlEscape(text).replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>'));
-    } catch (e) {
       iaReplaceBot(lid, iaFallback(msg, perfil, e.message || e));
     }
   }

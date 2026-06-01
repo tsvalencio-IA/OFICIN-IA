@@ -36,7 +36,6 @@ const config = {
       'res.cloudinary.com',
       'wa.me',
       'api.whatsapp.com',
-      'generativelanguage.googleapis.com'
     ]
   },
   android: {
