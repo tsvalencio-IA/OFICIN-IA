@@ -27,7 +27,6 @@
     comissaoVendas: false,
     tabelaTempa: true,
     cilia: true,
-    orcamentoAutomatizado: true,
     cotacao: true,
     clienteOficial: true,
     assinatura: true,
@@ -42,7 +41,6 @@
 
   const DEPENDENCIES = Object.freeze({
     cotacao: ['os', 'estoque'],
-    orcamentoAutomatizado: ['os'],
     clienteOficial: ['os', 'crm'],
     tabelaTempa: ['os'],
     cilia: ['os'],
@@ -137,7 +135,9 @@
     });
     root.querySelectorAll('[data-submodule]').forEach(el => {
       const keys = String(el.getAttribute('data-submodule') || '').split(',').map(v => v.trim()).filter(Boolean);
-      const ok = !keys.length || keys.every(subEnabled);
+      const moduleKeys = String(el.getAttribute('data-module') || '').split(',').map(v => v.trim()).filter(Boolean);
+      const moduleOk = !moduleKeys.length || moduleKeys.every(enabled);
+      const ok = moduleOk && (!keys.length || keys.every(subEnabled));
       el.style.display = ok ? '' : 'none';
       el.setAttribute('aria-hidden', ok ? 'false' : 'true');
     });
@@ -179,13 +179,12 @@
       body[data-mod-tabela-tempa="off"] [onclick*="_tempaSugerir"],
       body[data-mod-tabela-tempa="off"] [onclick*="tempa"],
       body[data-mod-cilia="off"] [id*="cilia" i],
-      body[data-mod-orcamento-automatizado="off"] [data-module="orcamentoAutomatizado"],
-      body[data-mod-orcamento-automatizado="off"] #btnOrcamentoAutomatizadoOS,
       body[data-mod-cotacao="off"] #cotacaoPecasOSSlot,
       body[data-mod-cotacao="off"] [onclick*="Cotacao"],
       body[data-mod-cotacao="off"] [onclick*="cotacao"],
       body[data-mod-pdf="off"] #btnGerarPDFOS,
       body[data-mod-xlsx="off"] #btnExportarPMSP,
+      body[data-mod-xlsx="off"] #btnExportarPMSPItens,
       body[data-mod-assinatura="off"] [data-tab-target="tabOS4"],
       body[data-mod-auditoria="off"] [onclick*="auditoria"],
       body[data-mod-cliente-oficial="off"] [data-module="clienteOficial"]{display:none!important}

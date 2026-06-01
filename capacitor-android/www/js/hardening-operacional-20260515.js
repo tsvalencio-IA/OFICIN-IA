@@ -1,4 +1,4 @@
-/*
+﻿/*
  * thIAguinho SaaS - hardening operacional/fiscal/financeiro 2026-05-15
  * Camada conservadora: nao substitui os motores existentes; corrige fluxos
  * criticos de lote, auditoria interna, exibicao e IA local.
@@ -29,6 +29,37 @@
   }
   function placaNorm(v) {
     return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+  function vinculoFiscalReal(v) {
+    const status = norm(v?.status || v?.statusVinculo || '');
+    if (/(cancelad|excluid|estornad)/.test(status)) return false;
+    const destino = String(v?.finalidade || v?.destino || '').toLowerCase().trim();
+    if (destino === 'os' || destino === 'placa') return true;
+    if (destino) return v?.estoqueBaixadoAutomatico === true;
+    return !!(v?.estoqueBaixadoAutomatico || v?.osId || v?.placa);
+  }
+  function destinoFiscalResumo(v) {
+    if (!vinculoFiscalReal(v)) return 'Estoque';
+    const placa = v?.placa ? placaNorm(v.placa) : '';
+    const os = v?.osId ? `OS #${String(v.osId).slice(-6).toUpperCase()}` : '';
+    return [placa, os].filter(Boolean).join(' ') || 'Vinculado';
+  }
+  function pecaRealFiscalValida(p) {
+    const nfId = String(p?.nfId || '').trim();
+    const nfNumero = String(p?.nfNumero || p?.nf || p?.notaFiscal || '').trim();
+    if (!nfId && !nfNumero) return true;
+    const codP = codigoPecaNormalizado(p?.codigoFornecedor || p?.codigo || p?.codigoComercial || p?.oem || '');
+    const descP = norm(p?.desc || p?.descricao || '');
+    const candidatos = (J().nfItensVinculos || []).filter(v =>
+      (!nfId || String(v.nfId || '').trim() === nfId) &&
+      (!nfNumero || String(v.nfNumero || '').trim() === nfNumero)
+    );
+    const vinc = candidatos.find(v => {
+      const codV = codigoPecaNormalizado(v.codigoFornecedor || v.codigo || v.codigoComercial || v.oem || '');
+      const descV = norm(v.desc || v.descricao || '');
+      return (codP && codV && codP === codV) || (descP && descV && descP === descV);
+    });
+    return !vinc || vinculoFiscalReal(vinc);
   }
   function todayISO() {
     const d = new Date();
@@ -62,6 +93,11 @@
     const modelo = [v.marca, v.modelo || os?.veiculo].filter(Boolean).join(' ') || 'Veiculo';
     return `${prefixo ? 'Prefixo ' + prefixo + ' - ' : ''}${placa} - ${modelo} - ${c.nome || os?.cliente || 'Cliente'} - OS #${String(os?.id || '').slice(-6).toUpperCase()} - ${os?.status || 'sem status'}`;
   }
+  function osEmAtendimento(os) {
+    const st = norm([os?.status, os?.etapa].filter(Boolean).join(' '));
+    if (!st) return true;
+    return !/(cancelad|entreg|finaliz|encerrad|recusad|arquivad|excluid)/.test(st);
+  }
 
   function installCSS() {
     if (byId('hardeningOperacionalCss')) return;
@@ -82,6 +118,10 @@
       .nf-batch-tools{border:1px solid rgba(0,194,255,.22);background:rgba(0,194,255,.06);border-radius:4px;padding:10px;margin-bottom:10px;}
       .nf-real-row{position:relative;}
       .nf-batch-check{position:absolute;right:44px;top:8px;z-index:2;font-family:var(--fm);font-size:.6rem;color:var(--cyan);display:flex;align-items:center;gap:4px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;padding:3px 6px;}
+      .hist-os-card summary{list-style:none;cursor:pointer;}
+      .hist-os-card summary::-webkit-details-marker{display:none;}
+      .hist-os-chevron{font-family:var(--fm);font-size:.78rem;color:var(--cyan);transition:transform .16s ease;display:inline-block;}
+      .hist-os-card[open] .hist-os-chevron{transform:rotate(90deg);}
       .exec-finalizados details{border:1px solid rgba(0,255,170,.18);background:rgba(0,255,170,.035);border-radius:4px;padding:8px;}
       .exec-finalizados summary{cursor:pointer;font-family:var(--fm);font-size:.7rem;color:var(--success);font-weight:800;letter-spacing:.8px;}
       @media(max-width:900px){.op-table{min-width:640px}.nf-batch-tools .form-row{grid-template-columns:1fr!important}.execucao-aprovado-row{grid-template-columns:1fr!important}}
@@ -89,9 +129,18 @@
     D.head.appendChild(st);
   }
 
-  function osOptionsHTML(selected) {
-    return `<option value="">Selecione placa / O.S. / cliente...</option>` + (J().os || [])
-      .filter(o => !/cancelad/i.test(String(o.status || '')))
+  function osOptionsHTML(selected, filtro) {
+    const termo = norm(filtro || '');
+    const placaBusca = placaNorm(filtro || '');
+    return `<option value="">Selecione placa / O.S. / cliente em atendimento...</option>` + (J().os || [])
+      .filter(o => osEmAtendimento(o) || String(o.id || '') === String(selected || ''))
+      .filter(o => {
+        if (!termo && !placaBusca) return true;
+        const v = veiculoByOS(o);
+        const placa = placaNorm(o.placa || v.placa || '');
+        if (placaBusca && placa && (placa.includes(placaBusca) || placaBusca.includes(placa))) return true;
+        return norm(osLabel(o)).includes(termo);
+      })
       .sort((a,b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')))
       .map(o => `<option value="${esc(o.id)}" ${String(selected||'')===String(o.id)?'selected':''}>${esc(osLabel(o))}</option>`)
       .join('');
@@ -112,7 +161,8 @@
       tools.className = 'nf-batch-tools';
       tools.innerHTML = `
         <div class="op-title">VINCULO EM LOTE DA NF</div>
-        <div class="form-row cols-2" style="align-items:end;">
+        <div class="form-row cols-3" style="align-items:end;">
+          <div class="form-group"><label class="j-label">Buscar placa / O.S.</label><input class="j-input" id="nfBatchOSBusca" placeholder="Digite a placa ou O.S." oninput="window.nfBatchFiltrarOS(this.value)"></div>
           <div class="form-group"><label class="j-label">Veiculo / O.S. destino</label><select class="j-select" id="nfBatchOSSelect"></select></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button type="button" class="btn-ghost" onclick="window.nfBatchMarcarTodos(true)">MARCAR TODOS</button>
@@ -128,11 +178,18 @@
     const sel = byId('nfBatchOSSelect');
     if (sel) {
       const old = sel.value;
-      sel.innerHTML = osOptionsHTML(old);
+      sel.innerHTML = osOptionsHTML(old, byId('nfBatchOSBusca')?.value || '');
       if (old && Array.from(sel.options).some(opt => opt.value === old)) sel.value = old;
     }
     cont.querySelectorAll('.nf-real-row').forEach(addNFRowCheckbox);
   }
+  W.nfBatchFiltrarOS = function () {
+    const sel = byId('nfBatchOSSelect');
+    if (!sel) return;
+    const old = sel.value;
+    sel.innerHTML = osOptionsHTML(old, byId('nfBatchOSBusca')?.value || '');
+    if (old && Array.from(sel.options).some(opt => opt.value === old)) sel.value = old;
+  };
 
   W.nfBatchMarcarTodos = function (on) {
     D.querySelectorAll('#containerItensNF .nf-item-check').forEach(ch => { ch.checked = !!on; });
@@ -294,9 +351,134 @@
   function groupText(groups) {
     return Object.values(groups).flat().map(x => [x.desc,x.descricao,x.codigo,x.codigoFornecedor,x.codigoComercial,x.oem,x.marca,x.nf,x.nfNumero,x.fornecedor].join(' ')).join(' ');
   }
+  function itemTextHistorico(item) {
+    return [item?.desc,item?.descricao,item?.codigo,item?.codigoFornecedor,item?.codigoComercial,item?.oem,item?.ean,item?.marca,item?.nf,item?.nfNumero,item?.fornecedor].join(' ');
+  }
+  function itemCombinaTermoHistorico(item, termoRaw) {
+    const raw = String(termoRaw || '').trim();
+    if (!raw) return true;
+    if (termoPareceCodigoPeca(raw)) return itemTemCodigoPeca(item, codigoPecaNormalizado(raw));
+    return norm(itemTextHistorico(item)).includes(norm(raw));
+  }
+  function filtrarGruposHistorico(groups, termoRaw) {
+    const raw = String(termoRaw || '').trim();
+    if (!raw) return groups;
+    const out = {};
+    Object.keys(groups).forEach(k => {
+      out[k] = (groups[k] || []).filter(item => itemCombinaTermoHistorico(item, raw));
+    });
+    return out;
+  }
   function renderGroup(title, arr, cls) {
     if (!arr.length) return '';
     return `<div style="margin-top:8px;"><strong class="op-chip ${cls||''}">${esc(title)}</strong><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;margin-top:6px;">${arr.map(it => `<div style="border:1px solid var(--border);background:rgba(255,255,255,.03);border-radius:3px;padding:7px;font-size:.72rem;"><b>${it.codigo ? '[' + esc(it.codigo) + '] ' : ''}${esc(it.desc || it.descricao || '-')}</b>${it.qtd ? `<br><small>Qtd ${esc(it.qtd)}</small>`:''}${it.nf || it.nfNumero ? `<br><small>NF ${esc(it.nf || it.nfNumero)} - ${esc(it.fornecedor || '')}</small>`:''}</div>`).join('')}</div></div>`;
+  }
+  function qtdCustoReal(item) {
+    const q = num(item?.qtd || item?.quantidade || item?.qtde || 1);
+    return q > 0 ? q : 1;
+  }
+  function totalCustoReal(item) {
+    const total = num(item?.totalCompra || item?.valorLiquido || item?.totalCusto || item?.custoTotal || item?.valorTotal || item?.total);
+    if (total > 0) return total;
+    const unit = num(item?.valorCompra || item?.custo || item?.valorUnitario || item?.custoUnit || item?.valorCusto || item?.precoCusto || item?.unitario);
+    return unit * qtdCustoReal(item);
+  }
+  function codigoCustoReal(item) {
+    return item?.codigoComercial || item?.codigoFornecedor || item?.codigo || item?.oem || item?.ean || '';
+  }
+  function chaveCustoReal(item, osId, placa) {
+    const desc = norm(item?.desc || item?.descricao || item?.descricaoOriginal || '');
+    return item?.origemNFItemKey || [
+      item?.nfId || item?.idNF || item?.chaveNFe || '',
+      item?.numeroItem || item?.nItem || item?.item || '',
+      item?.codigoFornecedor || '',
+      item?.codigoComercial || item?.oem || item?.codigo || '',
+      desc,
+      osId || '',
+      placa || ''
+    ].join('|');
+  }
+  function renderResumoCustosReaisVeiculo(placaFiltro, hits, termoRaw) {
+    if (!secret177() || !placaFiltro) return '';
+    const osList = Array.isArray(hits) ? hits : [];
+    const osIds = new Set(osList.map(o => String(o.id || '')).filter(Boolean));
+    const osById = id => (J().os || []).find(o => String(o.id || '') === String(id || '')) || {};
+    const rows = [];
+    const seen = new Set();
+    const placaOk = value => {
+      const p = placaNorm(value || '');
+      return p && (p === placaFiltro || p.includes(placaFiltro) || placaFiltro.includes(p));
+    };
+    const add = (origem, item, osBase, extra) => {
+      const os = osBase || {};
+      const v = veiculoByOS(os);
+      const placa = placaNorm(item?.placa || os.placa || v.placa || '');
+      const osId = item?.osId || os.id || '';
+      if (!osIds.has(String(osId || '')) && !placaOk(placa)) return;
+      const key = chaveCustoReal(item, osId, placa);
+      if (key && seen.has(key)) return;
+      if (key) seen.add(key);
+      const total = totalCustoReal(item);
+      rows.push(Object.assign({
+        origem,
+        codigo: codigoCustoReal(item),
+        desc: item?.desc || item?.descricao || item?.descricaoOriginal || '-',
+        qtd: qtdCustoReal(item),
+        total,
+        custoUnit: total / qtdCustoReal(item),
+        placa: placa || os.placa || v.placa || '',
+        osId,
+        nfNumero: item?.nfNumero || item?.nf || item?.notaFiscal || '',
+        fornecedor: item?.fornecedorNome || item?.fornecedor || '',
+        data: item?.dataCompra || item?.dataNF || item?.dataMov || item?.createdAt || ''
+      }, extra || {}));
+    };
+    osList.forEach(os => (Array.isArray(os.pecasReais) ? os.pecasReais : []).forEach(p => add('O.S. / pecas reais', p, os)));
+    (J().nfItensVinculos || []).forEach(v => add('NF vinculada a O.S.', v, osById(v.osId)));
+    (J().notasFiscaisEntrada || []).forEach(n => {
+      (Array.isArray(n.itens) ? n.itens : []).forEach(i => add('Item de NF', Object.assign({}, i, {
+        nfId: n.id || i.nfId,
+        nfNumero: n.numero || i.nfNumero,
+        fornecedor: n.fornecedorSnapshot?.nome || n.fornecedorNome || i.fornecedor,
+        dataCompra: n.dataNF || n.dataEmissao || n.createdAt || i.dataCompra
+      }), osById(i.osId)));
+    });
+    rows.sort((a,b) => String(b.data || '').localeCompare(String(a.data || '')));
+    const filtradas = String(termoRaw || '').trim()
+      ? rows.filter(r => itemCombinaTermoHistorico(r, termoRaw))
+      : rows.slice();
+    rows.length = 0;
+    rows.push(...filtradas);
+    if (!rows.length) {
+      return `<div class="op-card" style="border-color:rgba(255,59,59,.35);background:rgba(255,59,59,.045);">
+        <div class="op-title">RESUMO DE CUSTOS REAIS *177</div>
+        <div style="font-family:var(--fm);font-size:.72rem;color:var(--muted);">Nenhum custo real de peca/NF carregado para a placa ${esc(placaFiltro)}. O historico de O.S. abaixo continua disponivel.</div>
+      </div>`;
+    }
+    const total = rows.reduce((s,r) => s + num(r.total), 0);
+    const qtd = rows.reduce((s,r) => s + num(r.qtd), 0);
+    const nfs = Array.from(new Set(rows.map(r => r.nfNumero).filter(Boolean)));
+    const fornecedores = Array.from(new Set(rows.map(r => r.fornecedor).filter(Boolean))).slice(0, 6);
+    return `<div class="op-card" style="border-color:rgba(255,59,59,.35);background:rgba(255,59,59,.045);">
+      <div class="op-title">RESUMO DE CUSTOS REAIS *177 - ${esc(placaFiltro)}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:10px;">
+        <div><small style="color:var(--muted);font-family:var(--fm);">Itens reais</small><br><b>${esc(rows.length)}</b></div>
+        <div><small style="color:var(--muted);font-family:var(--fm);">Quantidade</small><br><b>${esc(qtd)}</b></div>
+        <div><small style="color:var(--muted);font-family:var(--fm);">Custo real conhecido</small><br><b style="color:var(--danger);">${moeda(total)}</b></div>
+        <div><small style="color:var(--muted);font-family:var(--fm);">NFs ligadas</small><br><b>${esc(nfs.length)}</b></div>
+      </div>
+      <div style="font-family:var(--fm);font-size:.64rem;color:var(--muted);margin-bottom:8px;">Fornecedores: ${esc(fornecedores.join(', ') || 'nao informado')}. Valores restritos a peca real/NF carregada nesta sessao.</div>
+      <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Origem</th><th>Codigo / peca</th><th>O.S.</th><th>NF / fornecedor</th><th>Qtd</th><th>Custo real</th><th>Data</th></tr></thead><tbody>
+      ${rows.slice(0, 80).map(r => `<tr>
+        <td>${esc(r.origem || '-')}</td>
+        <td><b>${esc(r.codigo || '-')}</b><br>${esc(r.desc || '-')}</td>
+        <td>${r.osId ? `<button class="btn-ghost" onclick="window.editarOS && window.editarOS('${esc(r.osId)}')">OS #${esc(String(r.osId).slice(-6).toUpperCase())}</button>` : '-'}<br><small>${esc(r.placa || '')}</small></td>
+        <td>NF ${esc(r.nfNumero || '-')}<br><small>${esc(r.fornecedor || '-')}</small></td>
+        <td>${esc(r.qtd || 1)}</td>
+        <td><b>${moeda(r.total)}</b><br><small>${moeda(r.custoUnit || 0)} un.</small></td>
+        <td>${esc(String(r.data || '-').slice(0,10))}</td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>`;
   }
   function codigoPecaNormalizado(v) {
     return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -348,6 +530,7 @@
     };
     (J().nfItensVinculos || []).forEach(v => {
       if (!itemTemCodigoPeca(v, codigo)) return;
+      if (!vinculoFiscalReal(v)) return;
       const os = (J().os || []).find(o => o.id === v.osId) || {};
       const veic = veiculoByOS(os);
       const cli = (J().clientes || []).find(c => c.id === (os.clienteId || veic.clienteId)) || {};
@@ -373,6 +556,7 @@
       const veic = veiculoByOS(os);
       const cli = (J().clientes || []).find(c => c.id === (os.clienteId || veic.clienteId)) || {};
       (Array.isArray(os.pecasReais) ? os.pecasReais : []).forEach(p => {
+        if (!pecaRealFiscalValida(p)) return;
         if (!itemTemCodigoPeca(p, codigo)) return;
         add('OS/PECAS REAIS', {
           codigo: p.codigoFornecedor || p.codigo || p.codigoComercial || p.oem || termoRaw,
@@ -392,6 +576,27 @@
           custo: p.custo || p.valorUnitario || 0
         });
       });
+      const groups = gruposHistorico(os);
+      ['pecAprov','pecNao'].forEach(k => (groups[k] || []).forEach(p => {
+        if (!itemTemCodigoPeca(p, codigo)) return;
+        add('OS/ORCAMENTO', 'ORCAMENTO DA O.S.', {
+          codigo: p.codigoFornecedor || p.codigo || p.codigoComercial || p.oem || termoRaw,
+          desc: p.desc || p.descricao || '',
+          marca: p.marca || '',
+          placa: os.placa || veic.placa || p.placa || '',
+          prefixo: veic.prefixo || os.prefixo || '',
+          veiculo: veic.modelo || os.veiculo || os.modelo || '',
+          cliente: cli.nome || os.cliente || '',
+          osId: os.id || '',
+          nfId: p.nfId || '',
+          nfNumero: p.nfNumero || p.nf || p.notaFiscal || '',
+          fornecedor: p.fornecedor || p.fornecedorNome || '',
+          dataCompra: p.dataCompra || p.dataNF || os.updatedAt || os.createdAt || '',
+          qtd: p.qtd || p.quantidade || 1,
+          baixa: p.estoqueBaixadoAutomatico,
+          custo: p.custo || p.valorUnitario || 0
+        });
+      }));
     });
     if (!rows.length) {
       return `<div style="color:var(--muted);font-family:var(--fm);font-size:.8rem;padding:10px 0;">Nenhum uso interno encontrado para o codigo ${esc(termoRaw)}.</div>`;
@@ -402,7 +607,7 @@
       ${rows.map(r => `<tr>
         <td><b>${esc(r.codigo || termoRaw)}</b><br>${esc(r.desc || '-')}<br><small>${esc(r.marca || '')}</small></td>
         <td><b>${esc(r.placa || '-')}</b> ${r.prefixo ? '<span class="op-chip">'+esc(r.prefixo)+'</span>' : ''}<br>${esc(r.veiculo || '-')}<br><small>${esc(r.cliente || '')}</small></td>
-        <td>${r.osId ? `<button class="btn-ghost" onclick="window.editarOS && window.editarOS('${esc(r.osId)}')">OS #${esc(String(r.osId).slice(-6).toUpperCase())}</button>` : '-'}</td>
+        <td>${r.osId ? `<button class="btn-primary" onclick="window.editarOS && window.editarOS('${esc(r.osId)}')">ABRIR O.S. #${esc(String(r.osId).slice(-6).toUpperCase())}</button>` : '-'}</td>
         <td>NF ${esc(r.nfNumero || '-')}<br><small>${esc(r.fornecedor || '-')}</small></td>
         <td>${esc(String(r.dataCompra || '-').slice(0,10))}<br><small>${esc(r.origem || '')}</small></td>
         <td>${esc(r.qtd || 1)}<br><small>${r.baixa ? 'baixado automaticamente' : 'sem baixa automatica registrada'}</small></td>
@@ -431,15 +636,17 @@
     (J().notasFiscaisEntrada || []).forEach(n => {
       (Array.isArray(n.itens) ? n.itens : []).forEach(i => {
         if (!itemTemCodigoPeca(i, codigo)) return;
+        const destinoItem = String(i.destino || i.finalidade || 'estoque').toLowerCase();
+        const itemVinculado = destinoItem === 'os' || destinoItem === 'placa';
         add('ENTRADA', 'NF', {
           codigo: i.codigoFornecedor || i.codigo || i.codigoComercial || termoRaw,
           desc: i.descricao || i.desc || '',
           marca: i.marca || '',
-          placa: i.placa || '',
+          placa: itemVinculado ? (i.placa || '') : '',
           prefixo: '',
-          veiculo: 'Estoque / entrada fiscal',
+          veiculo: itemVinculado ? 'Entrada fiscal vinculada' : 'Estoque / entrada fiscal',
           cliente: '',
-          osId: i.osId || '',
+          osId: itemVinculado ? (i.osId || '') : '',
           nfId: n.id || '',
           nfNumero: n.numero || i.nfNumero || '',
           fornecedor: n.fornecedorSnapshot?.nome || n.fornecedorNome || i.fornecedor || '',
@@ -453,6 +660,7 @@
     });
     (J().nfItensVinculos || []).forEach(v => {
       if (!itemTemCodigoPeca(v, codigo)) return;
+      if (!vinculoFiscalReal(v)) return;
       const os = (J().os || []).find(o => o.id === v.osId) || {};
       const veic = veiculoByOS(os);
       const cli = (J().clientes || []).find(c => c.id === (os.clienteId || veic.clienteId)) || {};
@@ -479,6 +687,7 @@
       const veic = veiculoByOS(os);
       const cli = (J().clientes || []).find(c => c.id === (os.clienteId || veic.clienteId)) || {};
       (Array.isArray(os.pecasReais) ? os.pecasReais : []).forEach(p => {
+        if (!pecaRealFiscalValida(p)) return;
         if (!itemTemCodigoPeca(p, codigo)) return;
         add('SAIDA', 'OS/PECAS REAIS', {
           codigo: p.codigoFornecedor || p.codigo || p.codigoComercial || p.oem || termoRaw,
@@ -499,6 +708,27 @@
           custo: p.custo || p.valorUnitario || 0
         });
       });
+      const groups = gruposHistorico(os);
+      ['pecAprov','pecNao'].forEach(k => (groups[k] || []).forEach(p => {
+        if (!itemTemCodigoPeca(p, codigo)) return;
+        add('OS/ORCAMENTO', {
+          codigo: p.codigoFornecedor || p.codigo || p.codigoComercial || p.oem || termoRaw,
+          desc: p.desc || p.descricao || '',
+          marca: p.marca || '',
+          placa: os.placa || veic.placa || p.placa || '',
+          prefixo: veic.prefixo || os.prefixo || '',
+          veiculo: veic.modelo || os.veiculo || os.modelo || '',
+          cliente: cli.nome || os.cliente || '',
+          osId: os.id || '',
+          nfId: p.nfId || '',
+          nfNumero: p.nfNumero || p.nf || p.notaFiscal || '',
+          fornecedor: p.fornecedor || p.fornecedorNome || '',
+          dataCompra: p.dataCompra || p.dataNF || os.updatedAt || os.createdAt || '',
+          qtd: p.qtd || p.quantidade || 1,
+          baixa: p.estoqueBaixadoAutomatico,
+          custo: p.custo || p.valorUnitario || 0
+        });
+      }));
     });
     if (!rows.length) {
       return `<div style="color:var(--muted);font-family:var(--fm);font-size:.8rem;padding:10px 0;">Nenhum movimento encontrado para o codigo ${esc(termoRaw)}.</div>`;
@@ -530,8 +760,13 @@
       const el = byId(resultadoId);
       if (!el) return;
       if (!placa && !termo) { el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;">Digite placa e/ou peca/servico.</div>'; return; }
-      if (secret177() && termoRaw && termoPareceCodigoPeca(termoRaw)) {
-        el.innerHTML = renderKardexPecaCodigo(codigoPecaNormalizado(termoRaw), termoRaw, placa);
+      if (termoRaw && termoPareceCodigoPeca(termoRaw)) {
+        const codigo = codigoPecaNormalizado(termoRaw);
+        const rastreio = renderRastreioPecaCodigo(codigo, termoRaw, placa);
+        const kardex = secret177()
+          ? `<details class="op-card hist-os-card"><summary style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><b style="font-family:var(--fd);color:var(--danger);">KARDEX INTERNO *177 DO CODIGO ${esc(termoRaw)}</b><span class="hist-os-chevron">›</span></summary><div style="margin-top:10px;">${renderKardexPecaCodigo(codigo, termoRaw, placa)}</div></details>`
+          : '';
+        el.innerHTML = rastreio + kardex;
         return;
       }
       const hits = (J().os || []).filter(o => {
@@ -543,21 +778,24 @@
         return norm(groupText(groups)).includes(termo);
       });
       if (!hits.length) { el.innerHTML = `<div style="color:var(--muted);font-family:var(--fm);font-size:.8rem;padding:10px 0;">Nenhuma O.S. encontrada.</div>`; return; }
-      el.innerHTML = `<div style="font-family:var(--fm);font-size:.65rem;color:var(--muted);margin-bottom:6px;">${hits.length} O.S. encontrada(s)</div>` + hits.map(o => {
+      el.innerHTML = renderResumoCustosReaisVeiculo(placa, hits, termoRaw) + `<div style="font-family:var(--fm);font-size:.65rem;color:var(--muted);margin-bottom:6px;">${hits.length} O.S. encontrada(s)${termoRaw ? ` - exibindo somente itens que batem com "${esc(termoRaw)}"` : ''}</div>` + hits.map(o => {
         const v = veiculoByOS(o);
         const c = (J().clientes || []).find(x => x.id === o.clienteId) || {};
-        const g = gruposHistorico(o);
-        return `<div class="op-card">
-          <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        const g = filtrarGruposHistorico(gruposHistorico(o), termoRaw);
+        const aberta = hits.length === 1 ? ' open' : '';
+        return `<details class="op-card hist-os-card"${aberta}>
+          <summary style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
             <div><b style="color:var(--cyan);font-family:var(--fm);">OS #${esc(String(o.numero || o.id || '').slice(-6).toUpperCase())}</b> <span class="op-chip">${esc(v.prefixo || o.prefixo || '')}</span> <span class="op-chip">${esc(o.placa || v.placa || '')}</span> <span class="op-chip">${esc(v.modelo || o.veiculo || '')}</span></div>
-            <div style="font-family:var(--fm);font-size:.68rem;color:var(--muted);">${esc(c.nome || o.cliente || '')} - ${esc(o.status || '')}</div>
+            <div style="font-family:var(--fm);font-size:.68rem;color:var(--muted);">${esc(c.nome || o.cliente || '')} - ${esc(o.status || '')} <span class="hist-os-chevron">›</span></div>
+          </summary>
+          <div style="margin-top:10px;">
+            ${renderGroup('SERVICOS APROVADOS', g.servAprov, 'ok')}
+            ${renderGroup('PECAS APROVADAS', g.pecAprov, 'ok')}
+            ${renderGroup('SERVICOS NAO APROVADOS', g.servNao, 'warn')}
+            ${renderGroup('PECAS NAO APROVADAS', g.pecNao, 'warn')}
+            ${secret177() ? renderGroup('PECAS REAIS / AUDITORIA *177', g.reais, 'danger') : ''}
           </div>
-          ${renderGroup('SERVICOS APROVADOS', g.servAprov, 'ok')}
-          ${renderGroup('PECAS APROVADAS', g.pecAprov, 'ok')}
-          ${renderGroup('SERVICOS NAO APROVADOS', g.servNao, 'warn')}
-          ${renderGroup('PECAS NAO APROVADAS', g.pecNao, 'warn')}
-          ${secret177() ? renderGroup('PECAS REAIS / AUDITORIA *177', g.reais, 'danger') : ''}
-        </div>`;
+        </details>`;
       }).join('');
     };
   }
@@ -584,14 +822,20 @@
     if (!sec || byId('docsFiscaisPanel')) return;
     const panel = D.createElement('div');
     panel.id = 'docsFiscaisPanel';
-    panel.className = 'op-card';
+    panel.className = 'op-card j-card';
     panel.innerHTML = `
-      <div class="op-title">NOTAS FISCAIS / ENTRADAS / SAIDAS</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-        <input class="j-input" id="fiscalDocBusca" placeholder="Buscar por NF, fornecedor, codigo, placa, O.S." style="min-width:260px;flex:1;" oninput="window.renderDocsFiscaisHardening()">
-        <select class="j-select" id="fiscalDocTipo" onchange="window.renderDocsFiscaisHardening()" style="width:180px;"><option value="">Todos</option><option value="entrada">Entradas NF</option><option value="mov">Movimentos estoque</option><option value="saida">Saidas/vendas</option></select>
+      <div class="j-card-header">
+        <div class="j-card-title">NOTAS FISCAIS / ENTRADAS / SAIDAS</div>
+        <div class="j-collapse-tools"><button type="button" class="btn-ghost j-collapse-toggle" onclick="window.toggleJarvisCollapse(this)" title="Minimizar ou expandir notas fiscais">−</button></div>
       </div>
-      <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Tipo</th><th>Documento</th><th>Fornecedor/Cliente</th><th>Data</th><th>Valor/Qtd</th><th>Vinculos</th><th>Acoes</th></tr></thead><tbody id="tbDocsFiscais"></tbody></table></div>`;
+      <div class="j-card-body">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <input class="j-input" id="fiscalDocBusca" placeholder="Buscar por NF, fornecedor, codigo, placa, O.S." style="min-width:260px;flex:1;" oninput="window.renderDocsFiscaisHardening()">
+          <select class="j-select" id="fiscalDocTipo" onchange="window.renderDocsFiscaisHardening()" style="width:180px;"><option value="">Todos</option><option value="entrada">Entradas NF</option><option value="mov">Movimentos estoque</option><option value="saida">Saidas/vendas</option></select>
+        </div>
+        <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Tipo</th><th>Documento</th><th>Fornecedor/Cliente</th><th>Data</th><th>Valor/Qtd</th><th>Vinculos</th><th>Acoes</th></tr></thead><tbody id="tbDocsFiscais"></tbody></table></div>
+      </div>
+      `;
     sec.prepend(panel);
     ensureFiscalModal();
   }
@@ -608,7 +852,9 @@
       const d = r.doc;
       if (r.kind === 'entrada') {
         const vinc = (J().nfItensVinculos || []).filter(x => x.nfId === d.id);
-        return `<tr><td><span class="op-chip ok">Entrada NF</span></td><td><b>NF ${esc(d.numero || '-')}</b><br><small>${esc(d.chave || '')}</small></td><td>${esc(d.fornecedorSnapshot?.nome || d.fornecedorNome || '-')}</td><td>${esc(d.dataNF || d.createdAt || '-')}</td><td>${moeda(d.totalNF || d.totalItens || 0)}<br><small>${(d.itens||[]).length} item(ns)</small></td><td>${vinc.filter(x=>x.osId||x.placa).length} vinculo(s)<br><small>${vinc.filter(x=>x.estoqueBaixadoAutomatico).length} baixa(s) auto</small></td><td><button class="btn-ghost" onclick="window.editarDocFiscal('${esc(d.id)}')">EDITAR</button></td></tr>`;
+        const vincReais = vinc.filter(vinculoFiscalReal);
+        const excluida = d.excluidaAuditada || /excluida|cancelada/i.test(String(d.statusFiscal || d.statusConferencia || ''));
+        return `<tr><td><span class="op-chip ${excluida?'danger':'ok'}">${excluida?'Excluida auditada':'Entrada NF'}</span></td><td><b>NF ${esc(d.numero || '-')}</b><br><small>${esc(d.chave || '')}</small></td><td>${esc(d.fornecedorSnapshot?.nome || d.fornecedorNome || '-')}</td><td>${esc(d.dataNF || d.createdAt || '-')}</td><td>${moeda(d.totalNF || d.totalItens || 0)}<br><small>${(d.itens||[]).length} item(ns)</small></td><td>${vincReais.length} vinculo(s)<br><small>${vinc.filter(x=>x.estoqueBaixadoAutomatico).length} baixa(s) auto</small></td><td><button class="btn-ghost" onclick="window.editarDocFiscal('${esc(d.id)}')">EDITAR</button>${excluida?'':`<button class="btn-danger" onclick="window.excluirNFAuditada ? window.excluirNFAuditada('${esc(d.id)}') : window.excluirNFDef('${esc(d.id)}')" style="margin-left:4px;">EXCLUIR</button>`}</td></tr>`;
       }
       if (r.kind === 'saida') {
         return `<tr><td><span class="op-chip">Saida/venda</span></td><td><b>${esc(String(d.id||'').slice(-6).toUpperCase())}</b></td><td>${esc(d.clienteNome || '-')}</td><td>${esc(d.data || d.createdAt || '-')}</td><td>${moeda(d.total || 0)}<br><small>${(d.itens||[]).length} item(ns)</small></td><td>${esc(d.canal || '')}</td><td>-</td></tr>`;
@@ -641,10 +887,14 @@
         A nota XML deve ser preservada. Edite apenas conferencia, vinculos internos, estoque e financeiro com auditoria.
       </div>
       <div class="op-table-wrap" style="margin-top:8px;"><table class="op-table"><thead><tr><th>Codigo</th><th>Descricao</th><th>NCM/CFOP/CEST</th><th>Qtd</th><th>Custo</th><th>Destino</th></tr></thead><tbody>
-        ${(n.itens || []).slice(0,80).map(i => `<tr><td>${esc(i.codigoFornecedor || i.codigo || '')}<br><small>${esc(i.codigoComercial || i.oem || '')}</small></td><td>${esc(i.descricao || i.desc || '')}<br><small>${esc(i.marca || '')}</small></td><td>${esc(i.ncm || '-')} / ${esc(i.cfop || '-')} / ${esc(i.cest || '-')}</td><td>${esc(i.quantidade || i.qtd || 1)}</td><td>${moeda(i.valorUnitario || i.custo || 0)}</td><td>${esc(i.destino || i.finalidade || 'estoque')} ${esc(i.placa || i.vinculo || '')}</td></tr>`).join('') || '<tr><td colspan="6">Sem itens registrados.</td></tr>'}
+        ${(n.itens || []).slice(0,80).map(i => {
+          const dest = String(i.destino || i.finalidade || 'estoque').toLowerCase();
+          const complemento = (dest === 'os' || dest === 'placa') ? (i.placa || i.vinculo || '') : '';
+          return `<tr><td>${esc(i.codigoFornecedor || i.codigo || '')}<br><small>${esc(i.codigoComercial || i.oem || '')}</small></td><td>${esc(i.descricao || i.desc || '')}<br><small>${esc(i.marca || '')}</small></td><td>${esc(i.ncm || '-')} / ${esc(i.cfop || '-')} / ${esc(i.cest || '-')}</td><td>${esc(i.quantidade || i.qtd || 1)}</td><td>${moeda(i.valorUnitario || i.custo || 0)}</td><td>${esc(dest || 'estoque')} ${esc(complemento)}</td></tr>`;
+        }).join('') || '<tr><td colspan="6">Sem itens registrados.</td></tr>'}
       </tbody></table></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
-        <div style="border:1px solid var(--border);border-radius:4px;padding:10px;background:var(--surf2);"><b>Vinculos / baixas</b><br>${vinculos.slice(0,40).map(v=>`- ${esc(v.codigoFornecedor || v.codigo || '')} ${esc(v.desc || '')} | ${esc(v.placa || '-')} ${v.osId ? 'OS #' + esc(String(v.osId).slice(-6).toUpperCase()) : ''} | baixa: ${v.estoqueBaixadoAutomatico?'sim':'nao'}`).join('<br>') || 'Nenhum vinculo registrado.'}</div>
+        <div style="border:1px solid var(--border);border-radius:4px;padding:10px;background:var(--surf2);"><b>Vinculos / baixas</b><br>${vinculos.slice(0,40).map(v=>`- ${esc(v.codigoFornecedor || v.codigo || '')} ${esc(v.desc || '')} | ${esc(destinoFiscalResumo(v))} | baixa: ${v.estoqueBaixadoAutomatico?'sim':'nao'}`).join('<br>') || 'Nenhum vinculo registrado.'}</div>
         <div style="border:1px solid var(--border);border-radius:4px;padding:10px;background:var(--surf2);"><b>Financeiro da NF</b><br>${fins.slice(0,40).map(f=>`- ${esc(f.desc || f.id)} | ${moeda(f.valor || 0)} | ${esc(f.venc || '')} | ${esc(f.status || '')}${f.pacoteBoletoNumero ? ' | pacote ' + esc(f.pacoteBoletoNumero) : ''}`).join('<br>') || 'Nenhum lancamento vinculado.'}</div>
       </div>`;
     W.abrirModal?.('modalFiscalDocHardening');
@@ -662,99 +912,187 @@
     if (!sec || byId('pacotesBoletosPanel')) return;
     const p = D.createElement('div');
     p.id = 'pacotesBoletosPanel';
-    p.className = 'op-card';
+    p.className = 'op-card j-card';
     p.innerHTML = `
-      <div class="op-title">PACOTES DE BOLETOS / DUPLICATAS DE FORNECEDOR</div>
-      <div style="display:grid;grid-template-columns:minmax(180px,1fr) 140px 140px auto auto;gap:8px;align-items:end;margin-bottom:8px;">
-        <div class="form-group"><label class="j-label">Fornecedor</label><select class="j-select" id="pkgFornecedor"></select></div>
-        <div class="form-group"><label class="j-label">Inicio</label><input type="date" class="j-input" id="pkgInicio"></div>
-        <div class="form-group"><label class="j-label">Fim</label><input type="date" class="j-input" id="pkgFim"></div>
-        <button class="btn-outline" onclick="window.previewPacoteBoletosHardening()">PREVISUALIZAR</button>
-        <button class="btn-primary" onclick="window.criarPacoteBoletosHardening()">CRIAR PACOTE</button>
+      <div class="j-card-header">
+        <div class="j-card-title">PACOTES DE BOLETOS / DUPLICATAS DE FORNECEDOR</div>
+        <div class="j-collapse-tools"><button type="button" class="btn-ghost j-collapse-toggle" onclick="window.toggleJarvisCollapse(this)" title="Minimizar ou expandir pacotes">−</button></div>
       </div>
-      <div id="pkgPreview" style="display:none;border:1px solid var(--border);background:var(--surf2);border-radius:4px;padding:10px;margin-bottom:8px;font-size:.72rem;"></div>
-      <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Pacote</th><th>Fornecedor</th><th>Periodo</th><th>Titulos</th><th>Total</th><th>Status</th><th>Acoes</th></tr></thead><tbody id="tbPacotesBoletos"></tbody></table></div>`;
+      <div class="j-card-body">
+        <div style="display:grid;grid-template-columns:minmax(180px,1fr) 140px 140px auto auto;gap:8px;align-items:end;margin-bottom:8px;">
+          <div class="form-group"><label class="j-label">Fornecedor</label><select class="j-select" id="pkgFornecedor"></select></div>
+          <div class="form-group"><label class="j-label">Inicio</label><input type="date" class="j-input" id="pkgInicio"></div>
+          <div class="form-group"><label class="j-label">Fim</label><input type="date" class="j-input" id="pkgFim"></div>
+          <button class="btn-outline" onclick="window.previewPacoteBoletosHardening()">LISTAR TITULOS</button>
+          <button class="btn-primary" onclick="window.prepararPacoteBoletosHardening()">GERAR BOLETOS</button>
+        </div>
+        <div id="pkgPreview" style="display:none;border:1px solid var(--border);background:var(--surf2);border-radius:4px;padding:10px;margin-bottom:8px;font-size:.72rem;"></div>
+        <div id="pkgBoletosEditor" style="display:none;border:1px solid rgba(125,211,252,.35);background:rgba(125,211,252,.055);border-radius:4px;padding:10px;margin-bottom:8px;"></div>
+        <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Pacote</th><th>Fornecedor</th><th>Periodo</th><th>Titulos</th><th>Boletos reais</th><th>Total</th><th>Status</th><th>Acoes</th></tr></thead><tbody id="tbPacotesBoletos"></tbody></table></div>
+      </div>`;
     sec.prepend(p);
+    wrapToggleFinanceiroAgrupado();
     setTimeout(renderPacotesBoletos, 100);
   }
+
+  function fornecedorNomePacote(id) {
+    const f = (J().fornecedores || []).find(x => String(x.id) === String(id));
+    return f?.nome || f?.razaoSocial || f?.razao || f?.fantasia || id || '-';
+  }
+
   function renderPacotesBoletos() {
     const sel = byId('pkgFornecedor');
-    if (sel) sel.innerHTML = '<option value="">Todos fornecedores</option>' + (J().fornecedores || []).map(f => `<option value="${esc(f.id)}">${esc(f.nome || f.razaoSocial || f.id)}</option>`).join('');
+    if (sel) {
+      const old = sel.value || '';
+      sel.innerHTML = '<option value="">Selecione um fornecedor</option>' + (J().fornecedores || []).map(f => `<option value="${esc(f.id)}">${esc(f.nome || f.razaoSocial || f.id)}</option>`).join('');
+      if (old) sel.value = old;
+    }
     const tb = byId('tbPacotesBoletos');
     if (!tb) return;
     tb.innerHTML = (J().pacotesBoletos || []).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).map(p => {
       const fechado = /fechado|pago|baixado/i.test(String(p.status || ''));
-      return `<tr><td><b>${esc(p.numero || String(p.id||'').slice(-6).toUpperCase())}</b></td><td>${esc(p.fornecedorNome || p.fornecedorId || '-')}</td><td>${esc(p.inicio || '-')} a ${esc(p.fim || '-')}</td><td>${(p.titulos || []).length}</td><td>${moeda(p.total || 0)}</td><td><span class="op-chip ${fechado?'ok':'warn'}">${esc(p.status || 'Aberto')}</span></td><td><button class="btn-ghost" onclick="window.verTitulosPacoteBoletos('${esc(p.id)}')">VER</button>${fechado?'':`<button class="btn-outline" onclick="window.baixarPacoteBoletosHardening('${esc(p.id)}')" style="margin-left:4px;">BAIXAR</button>`}</td></tr>`;
-    }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Nenhum pacote criado.</td></tr>';
+      const boletos = Array.isArray(p.boletos) ? p.boletos : [];
+      return `<tr><td><b>${esc(p.numero || String(p.id||'').slice(-6).toUpperCase())}</b></td><td>${esc(p.fornecedorNome || p.fornecedorId || '-')}</td><td>${esc(p.inicio || '-')} a ${esc(p.fim || '-')}</td><td>${(p.titulos || []).length}</td><td>${boletos.length}<br><small>${boletos.map(b => esc((b.numero || 's/n') + ' ' + (b.vencimento || ''))).join('<br>')}</small></td><td>${moeda(p.total || p.totalBoletos || 0)}</td><td><span class="op-chip ${fechado?'ok':'warn'}">${esc(p.status || 'Aberto')}</span></td><td><button class="btn-ghost" onclick="window.verTitulosPacoteBoletos('${esc(p.id)}')">VER</button>${fechado?'':`<button class="btn-outline" onclick="window.baixarPacoteBoletosHardening('${esc(p.id)}')" style="margin-left:4px;">BAIXAR BOLETOS</button>`}</td></tr>`;
+    }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">Nenhum pacote criado.</td></tr>';
   }
+
   function titulosElegiveisPacote() {
     const fornecedorId = byId('pkgFornecedor')?.value || '';
-    const ini = byId('pkgInicio')?.value || todayISO();
-    const fim = byId('pkgFim')?.value || ini;
+    const ini = byId('pkgInicio')?.value || '0000-01-01';
+    const fim = byId('pkgFim')?.value || '9999-12-31';
     return (J().financeiro || []).filter(f => {
-      const isSaida = /saida|despesa|pagar/.test(norm(f.tipo || ''));
       const status = norm(f.status);
-      const venc = String(f.venc || f.vencimento || '').slice(0,10);
-      const boleto = /(boleto|duplicata|nf|fornecedor|parcelado)/i.test([f.pgto,f.desc,f.categoria,f.origem].join(' '));
-      const fornOk = !fornecedorId || f.fornecedorId === fornecedorId || String(f.vinculo || '') === 'F_' + fornecedorId;
-      return isSaida && boleto && fornOk && venc >= ini && venc <= fim && !/pago|liquidado|cancelado/.test(status) && !f.pacoteBoletoId;
+      const venc = String(f.venc || f.vencimento || f.dataNF || f.createdAt || '').slice(0,10) || todayISO();
+      const boleto = f.aguardaBoletoAgrupado || f.agrupamentoPeriodo || /(boleto|duplicata|nf|fornecedor|parcelado|agrupamento)/i.test([f.pgto,f.desc,f.categoria,f.origem].join(' '));
+      const forn = f.fornecedorId || String(f.vinculo || '').replace(/^F_/, '');
+      const fornOk = fornecedorId && String(forn) === String(fornecedorId);
+      return boleto && fornOk && venc >= ini && venc <= fim && !/pago|liquidado|cancelado|agrupado/.test(status) && !f.pacoteBoletoId && !f.boletoRealDoPacote;
     });
   }
+
+  function titulosSelecionadosPacote() {
+    const ids = Array.from(D.querySelectorAll('input[name="pkgTituloSel"]:checked')).map(x => x.value);
+    return (J().financeiro || []).filter(f => ids.includes(String(f.id)));
+  }
+
+  W.toggleSelecionarTitulosPacote = function (checked) {
+    D.querySelectorAll('input[name="pkgTituloSel"]').forEach(i => { i.checked = !!checked; });
+  };
+
   W.previewPacoteBoletosHardening = function () {
     const box = byId('pkgPreview');
     if (!box) return;
+    const fornecedorId = byId('pkgFornecedor')?.value || '';
+    if (!fornecedorId) { toast('Selecione o fornecedor para agrupar boletos.', 'warn'); return; }
     const lista = titulosElegiveisPacote();
     box.style.display = 'block';
     const total = lista.reduce((s,f)=>s+num(f.valor),0);
-    box.innerHTML = `<b>${lista.length} titulo(s) elegivel(is) - ${moeda(total)}</b><br>` +
-      (lista.length ? lista.slice(0,40).map(f=>`- ${esc(f.desc || f.id)} | venc. ${esc(f.venc || f.vencimento || '-')} | ${moeda(f.valor || 0)}`).join('<br>') : 'Nenhum boleto/duplicata aberto nesse periodo ou todos ja estao em pacote.');
+    box.innerHTML = `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px;"><b>${lista.length} titulo(s) elegivel(is) - ${moeda(total)}</b><label style="font-family:var(--fm);font-size:.68rem;color:var(--cyan);"><input type="checkbox" onchange="window.toggleSelecionarTitulosPacote(this.checked)"> selecionar todos</label></div>` +
+      (lista.length ? `<div class="op-table-wrap"><table class="op-table"><thead><tr><th></th><th>Descricao</th><th>Vencimento previsto</th><th>Valor</th><th>Status</th></tr></thead><tbody>${lista.map(f=>`<tr><td><input type="checkbox" name="pkgTituloSel" value="${esc(f.id)}"></td><td>${esc(f.desc || f.id)}<br><small>NF: ${esc(f.notaFiscalId || f.nfId || '-')}</small></td><td>${esc(f.venc || f.vencimento || '-')}</td><td>${moeda(f.valor || 0)}</td><td>${esc(f.status || '-')}</td></tr>`).join('')}</tbody></table></div>` : 'Nenhum titulo aguardando boleto agrupado nesse periodo para este fornecedor.');
   };
+
+  W.addLinhaBoletoPacote = function (valor) {
+    const tbody = byId('pkgBoletosRows');
+    if (!tbody) return;
+    const idx = tbody.querySelectorAll('tr').length + 1;
+    tbody.insertAdjacentHTML('beforeend', `<tr><td><input class="j-input pkg-boleto-numero" placeholder="Numero" value="${idx}"></td><td><input type="date" class="j-input pkg-boleto-venc"></td><td><input class="j-input pkg-boleto-valor" inputmode="decimal" placeholder="0,00" value="${valor ? moeda(valor).replace('R$ ','') : ''}"></td><td><input class="j-input pkg-boleto-obs" placeholder="Observacao"></td><td><button class="btn-danger" onclick="this.closest('tr').remove()">X</button></td></tr>`);
+  };
+
+  W.prepararPacoteBoletosHardening = function () {
+    const selecionados = titulosSelecionadosPacote();
+    if (!selecionados.length) { toast('Selecione os titulos/NFs que vieram no agrupamento do fornecedor.', 'warn'); return; }
+    const fornecedores = Array.from(new Set(selecionados.map(f => f.fornecedorId || String(f.vinculo || '').replace(/^F_/, '') || ''))).filter(Boolean);
+    if (fornecedores.length !== 1) { toast('O pacote deve conter titulos de um unico fornecedor.', 'warn'); return; }
+    const total = selecionados.reduce((s,f)=>s+num(f.valor),0);
+    const box = byId('pkgBoletosEditor');
+    if (!box) return;
+    W._pkgBoletosSelIds = selecionados.map(f => f.id);
+    box.style.display = 'block';
+    box.innerHTML = `<div style="font-family:var(--fd);font-weight:800;color:var(--cyan);margin-bottom:8px;">BOLETOS REAIS RECEBIDOS - ${esc(fornecedorNomePacote(fornecedores[0]))} - ${moeda(total)}</div>
+      <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Numero</th><th>Vencimento</th><th>Valor</th><th>Obs.</th><th></th></tr></thead><tbody id="pkgBoletosRows"></tbody></table></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"><button class="btn-outline" onclick="window.addLinhaBoletoPacote()">+ BOLETO</button><button class="btn-primary" onclick="window.confirmarPacoteBoletosHardening()">CONFIRMAR PACOTE</button></div>
+      <div class="form-group" style="margin-top:8px;"><label class="j-label">Justificativa para divergencia de valores</label><textarea class="j-input" id="pkgJustificativa" rows="2" placeholder="Obrigatoria se a soma dos boletos nao bater com os titulos selecionados."></textarea></div>`;
+    W.addLinhaBoletoPacote(total);
+  };
+
+  function coletarBoletosPacote() {
+    return Array.from(D.querySelectorAll('#pkgBoletosRows tr')).map(tr => ({
+      numero: tr.querySelector('.pkg-boleto-numero')?.value?.trim() || '',
+      vencimento: tr.querySelector('.pkg-boleto-venc')?.value || '',
+      valor: num(tr.querySelector('.pkg-boleto-valor')?.value || 0),
+      obs: tr.querySelector('.pkg-boleto-obs')?.value?.trim() || ''
+    })).filter(b => b.valor > 0 || b.vencimento || b.numero);
+  }
+
+  W.confirmarPacoteBoletosHardening = async function () {
+    const ids = W._pkgBoletosSelIds || [];
+    const titulos = (J().financeiro || []).filter(f => ids.includes(f.id));
+    if (!titulos.length || !db()) { toast('Selecao do pacote expirou. Liste e selecione novamente.', 'warn'); return; }
+    const fornecedores = Array.from(new Set(titulos.map(f => f.fornecedorId || String(f.vinculo || '').replace(/^F_/, '') || ''))).filter(Boolean);
+    if (fornecedores.length !== 1) { toast('O pacote deve conter titulos de um unico fornecedor.', 'warn'); return; }
+    const boletos = coletarBoletosPacote();
+    if (!boletos.length || boletos.some(b => !b.vencimento || b.valor <= 0)) { toast('Informe vencimento e valor de todos os boletos reais.', 'warn'); return; }
+    const totalTitulos = Math.round(titulos.reduce((s,f)=>s+num(f.valor),0)*100)/100;
+    const totalBoletos = Math.round(boletos.reduce((s,b)=>s+num(b.valor),0)*100)/100;
+    const justificativa = byId('pkgJustificativa')?.value?.trim() || '';
+    if (Math.abs(totalTitulos - totalBoletos) >= 0.02 && justificativa.length < 8) {
+      toast('A soma dos boletos nao bate com as NFs selecionadas. Informe justificativa.', 'warn');
+      return;
+    }
+    const fornecedorId = fornecedores[0];
+    const ini = titulos.map(f => String(f.venc || f.vencimento || '').slice(0,10)).filter(Boolean).sort()[0] || todayISO();
+    const fim = titulos.map(f => String(f.venc || f.vencimento || '').slice(0,10)).filter(Boolean).sort().pop() || ini;
+    const ref = db().collection('pacotes_boletos').doc();
+    const numero = `PCT-${todayISO().replace(/-/g,'')}-${String(ref.id).slice(-4).toUpperCase()}`;
+    const batch = db().batch();
+    batch.set(ref, { tenantId:J().tid, numero, fornecedorId, fornecedorNome:fornecedorNomePacote(fornecedorId), inicio:ini, fim, titulos:titulos.map(f=>({id:f.id, desc:f.desc, valor:num(f.valor), venc:f.venc||f.vencimento||'', notaFiscalId:f.notaFiscalId||f.nfId||''})), boletos, total:totalTitulos, totalTitulos, totalBoletos, status:'Aberto', divergenciaValor:Math.round((totalBoletos-totalTitulos)*100)/100, justificativaDivergencia:justificativa, createdAt:new Date().toISOString(), usuario:J().nome || 'Sistema' });
+    titulos.forEach(f => batch.update(db().collection('financeiro').doc(f.id), { status:'Agrupado', pacoteBoletoId:ref.id, pacoteBoletoNumero:numero, bloqueadoPagamentoIndividual:true, agrupadoEm:new Date().toISOString(), updatedAt:new Date().toISOString() }));
+    boletos.forEach((b, idx) => {
+      batch.set(db().collection('financeiro').doc(), { tenantId:J().tid, tipo:'Saida', status:'Pendente', desc:`Boleto agrupado ${numero} (${idx+1}/${boletos.length}) - ${fornecedorNomePacote(fornecedorId)}`, valor:num(b.valor), pgto:'Boleto agrupado', venc:b.vencimento, fornecedorId, fornecedorNome:fornecedorNomePacote(fornecedorId), pacoteBoletoId:ref.id, pacoteBoletoNumero:numero, boletoRealDoPacote:true, boletoNumero:b.numero || String(idx+1), obs:b.obs || '', titulosOrigem:titulos.map(t=>t.id), createdAt:new Date().toISOString() });
+    });
+    await batch.commit();
+    toast(`Pacote ${numero} criado com ${titulos.length} titulo(s) e ${boletos.length} boleto(s) real(is).`, 'ok');
+    const editor = byId('pkgBoletosEditor'); if (editor) editor.style.display = 'none';
+    W.previewPacoteBoletosHardening();
+  };
+
   W.verTitulosPacoteBoletos = function (id) {
     const p = (J().pacotesBoletos || []).find(x => x.id === id);
     const box = byId('pkgPreview');
     if (!p || !box) return;
     box.style.display = 'block';
-    box.innerHTML = `<b>${esc(p.numero || p.id)} - ${esc(p.status || 'Aberto')} - ${moeda(p.total || 0)}</b><br>` +
-      ((p.titulos || []).map(t => `- ${esc(t.desc || t.id)} | venc. ${esc(t.venc || '-')} | ${moeda(t.valor || 0)}`).join('<br>') || 'Sem titulos no pacote.');
+    box.innerHTML = `<b>${esc(p.numero || p.id)} - ${esc(p.status || 'Aberto')} - ${moeda(p.total || 0)}</b><br><br><b>Titulos agrupados</b><br>` +
+      ((p.titulos || []).map(t => `- ${esc(t.desc || t.id)} | venc. ${esc(t.venc || '-')} | ${moeda(t.valor || 0)}`).join('<br>') || 'Sem titulos no pacote.') +
+      `<br><br><b>Boletos reais</b><br>` + ((p.boletos || []).map(b => `- ${esc(b.numero || 's/n')} | venc. ${esc(b.vencimento || '-')} | ${moeda(b.valor || 0)} ${b.obs ? '| ' + esc(b.obs) : ''}`).join('<br>') || 'Sem boletos reais registrados.');
   };
-  W.criarPacoteBoletosHardening = async function () {
-    const fornecedorId = byId('pkgFornecedor')?.value || '';
-    const ini = byId('pkgInicio')?.value || todayISO();
-    const fim = byId('pkgFim')?.value || ini;
-    const aberto = (J().financeiro || []).filter(f => {
-      const isSaida = /saida|despesa|pagar/.test(norm(f.tipo || ''));
-      const status = norm(f.status);
-      const venc = String(f.venc || f.vencimento || '').slice(0,10);
-      const boleto = /(boleto|duplicata|nf|fornecedor|parcelado)/i.test([f.pgto,f.desc,f.categoria,f.origem].join(' '));
-      const fornOk = !fornecedorId || f.fornecedorId === fornecedorId || String(f.vinculo || '') === 'F_' + fornecedorId;
-      return isSaida && boleto && fornOk && venc >= ini && venc <= fim && !/pago|liquidado|cancelado/.test(status) && !f.pacoteBoletoId;
-    });
-    if (!aberto.length) { toast('Nenhum boleto/duplicata aberto nesse periodo.', 'warn'); return; }
-    const fornecedor = (J().fornecedores || []).find(f => f.id === fornecedorId) || {};
-    const total = aberto.reduce((s,f)=>s+num(f.valor),0);
-    const ref = db().collection('pacotes_boletos').doc();
-    const numero = `PCT-${todayISO().replace(/-/g,'')}-${String(ref.id).slice(-4).toUpperCase()}`;
-    const batch = db().batch();
-    batch.set(ref, { tenantId:J().tid, numero, fornecedorId, fornecedorNome:fornecedor.nome || fornecedor.razaoSocial || '', inicio:ini, fim, titulos:aberto.map(f=>({id:f.id, desc:f.desc, valor:num(f.valor), venc:f.venc||f.vencimento||''})), total, status:'Aberto', createdAt:new Date().toISOString(), usuario:J().nome || 'Sistema' });
-    aberto.forEach(f => batch.update(db().collection('financeiro').doc(f.id), { pacoteBoletoId:ref.id, pacoteBoletoNumero:numero, updatedAt:new Date().toISOString() }));
-    await batch.commit();
-    toast(`Pacote ${numero} criado com ${aberto.length} titulo(s).`, 'ok');
-  };
+
   W.baixarPacoteBoletosHardening = async function (id) {
     const p = (J().pacotesBoletos || []).find(x => x.id === id);
     if (!p || !db()) return;
-    const forma = prompt('Forma de pagamento da baixa do pacote:', 'PIX') || 'PIX';
+    const forma = prompt('Forma de pagamento dos boletos reais do pacote:', 'PIX') || 'PIX';
     const dataBaixa = prompt('Data da baixa (YYYY-MM-DD):', todayISO()) || todayISO();
     const motivo = prompt('Observacao/comprovante da baixa:', 'Baixa de pacote de boletos') || 'Baixa de pacote de boletos';
+    const boletosReais = (J().financeiro || []).filter(f => f.pacoteBoletoId === id && f.boletoRealDoPacote && !/pago|liquidado|baixado/i.test(String(f.status || '')));
     const batch = db().batch();
-    (p.titulos || []).forEach(t => {
-      if (t.id) batch.update(db().collection('financeiro').doc(t.id), { status:'Pago', pgto:forma, dataBaixa, baixaPacoteEm:new Date().toISOString(), baixaPacotePor:J().nome || 'Sistema', baixaPacoteObs:motivo, updatedAt:new Date().toISOString() });
-    });
+    boletosReais.forEach(f => batch.update(db().collection('financeiro').doc(f.id), { status:'Pago', pgto:forma, dataBaixa, baixaPacoteEm:new Date().toISOString(), baixaPacotePor:J().nome || 'Sistema', baixaPacoteObs:motivo, updatedAt:new Date().toISOString() }));
     batch.update(db().collection('pacotes_boletos').doc(id), { status:'Fechado', formaBaixa:forma, dataBaixa, obsBaixa:motivo, fechadoEm:new Date().toISOString(), fechadoPor:J().nome || 'Sistema', updatedAt:new Date().toISOString() });
     await batch.commit();
-    toast(`Pacote ${p.numero || id} baixado e titulos marcados como pagos.`, 'ok');
+    toast(`Pacote ${p.numero || id} baixado pelos boletos reais. Titulos originais permanecem agrupados.`, 'ok');
   };
 
+  function wrapToggleFinanceiroAgrupado() {
+    if (typeof W.toggleStatusFin !== 'function' || W.toggleStatusFin.__thiaAgrupadoWrap) return;
+    const old = W.toggleStatusFin;
+    W.toggleStatusFin = function (id) {
+      const f = (J().financeiro || []).find(x => String(x.id) === String(id));
+      if (f && (f.bloqueadoPagamentoIndividual || /agrupado/i.test(String(f.status || '')) || (f.pacoteBoletoId && !f.boletoRealDoPacote))) {
+        toast('Titulo agrupado nao pode ser baixado individualmente. Use o pacote de boletos.', 'warn');
+        return;
+      }
+      return old.apply(this, arguments);
+    };
+    W.toggleStatusFin.__thiaAgrupadoWrap = true;
+  }
   function overrideEstoqueFornecedores() {
     W.renderEstoque = function () {
       const tb = byId('tbEstoque'); if (!tb) return;
@@ -911,10 +1249,10 @@
         const termo = q.replace(/onde|peca|peça|historico|estoque|usada|foi|em|qual/g,'').trim();
         const vinc = (J().nfItensVinculos || []).filter(v => norm([v.desc,v.codigo,v.codigoFornecedor,v.codigoComercial,v.placa,v.nfNumero].join(' ')).includes(termo));
         if (!vinc.length) return 'Nao ha vinculo de peca localizado nos dados carregados.';
-        return `Vinculos encontrados:<br>${vinc.slice(0,20).map(v=>`- ${esc(v.codigo||v.codigoFornecedor||'')} ${esc(v.desc||'-')} | NF ${esc(v.nfNumero||'-')} | ${esc(v.placa||'')} ${v.osId?'OS #'+esc(String(v.osId).slice(-6).toUpperCase()):''} | baixa auto: ${v.estoqueBaixadoAutomatico?'sim':'nao'}`).join('<br>')}`;
+        return `Vinculos encontrados:<br>${vinc.slice(0,20).map(v=>`- ${esc(v.codigo||v.codigoFornecedor||'')} ${esc(v.desc||'-')} | NF ${esc(v.nfNumero||'-')} | ${esc(destinoFiscalResumo(v))} | baixa auto: ${v.estoqueBaixadoAutomatico?'sim':'nao'}`).join('<br>')}`;
       }
       if (/ajuda|o que voce|o que consegue|comandos/.test(q)) {
-        return 'Posso responder localmente, sem API, sobre: boletos vencendo hoje, contas vencidas, estoque critico, O.S. por placa, notas fiscais importadas, pacotes de boletos, vinculos de pecas por NF/O.S. e inconsistencias de PIX parcelado. Para diagnostico tecnico generativo, configure a chave Gemini da oficina.';
+        return 'Posso responder localmente sobre: boletos vencendo hoje, contas vencidas, estoque critico, O.S. por placa, notas fiscais importadas, pacotes de boletos, vinculos de pecas por NF/O.S., historico tecnico e inconsistencias de PIX parcelado. Quando faltar contexto, vou pedir placa, modelo, periodo ou cliente.';
       }
       return null;
     };
@@ -1056,6 +1394,7 @@
     installFiscalListeners();
     installDocsFiscaisPanel();
     installPacotesPanel();
+    wrapToggleFinanceiroAgrupado();
     overrideEstoqueFornecedores();
     wrapSalvarOS();
     installOrcamentoAuto();

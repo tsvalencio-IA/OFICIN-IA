@@ -14,6 +14,8 @@
     clienteOficial: 'https://tsvalencio-ia.github.io/OFICIN-IA/clienteOficial.html',
     cotacaoFornecedor: 'https://tsvalencio-ia.github.io/OFICIN-IA/cotacao.html',
     cotacaoFornecedorCurta: 'https://tsvalencio-ia.github.io/OFICIN-IA/c.html',
+    valorIA: 'https://tsvalencio-ia.github.io/Prec_IA/',
+    valorIAFornecedor: 'https://tsvalencio-ia.github.io/Prec_IA/fornecedor.html',
     jarvis: 'https://tsvalencio-ia.github.io/OFICIN-IA/jarvis.html',
     equipe: 'https://tsvalencio-ia.github.io/OFICIN-IA/equipe.html',
     superadmin: 'https://tsvalencio-ia.github.io/OFICIN-IA/superadmin.html',
@@ -22,7 +24,8 @@
     usarLinkCurtoCotacao: true,
     incluirFirebaseConfigNoLink: false,
     qrCliente: 'https://tsvalencio-ia.github.io/OFICIN-IA/cliente.html',
-    apkShareBase: 'https://tsvalencio-ia.github.io/OFICIN-IA/'
+    apkShareBase: 'https://tsvalencio-ia.github.io/OFICIN-IA/',
+    apkUrl: 'https://github.com/tsvalencio-ia/OFICIN-IA/releases/latest'
   }, window.THIA_PUBLIC_LINKS || {});
 
   function cleanBase(url) {
@@ -55,6 +58,26 @@
     path = String(path || '').replace(/^\/+/, '');
     if (!base) return path || '';
     return path ? `${base}/${path}` : base;
+  }
+
+  function normalizarTelefoneBR(phone) {
+    let n = String(phone || '').replace(/\D/g, '');
+    if (!n) return '';
+    if (!n.startsWith('55')) n = '55' + n;
+    return n;
+  }
+
+  function isMobileRuntime() {
+    return /Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+  }
+
+  function isAppRuntime() {
+    try {
+      return !!(window.Capacitor && typeof window.Capacitor.getPlatform === 'function')
+        || /; wv\)|Version\/[\d.]+ Chrome\/[\d.]+ Mobile Safari/i.test(navigator.userAgent || '');
+    } catch (_) {
+      return false;
+    }
   }
 
   const PAGE_BY_KIND = {
@@ -118,4 +141,185 @@
     };
     return window.thiaGetPublicUrl(isGov ? 'clienteOficial' : 'cliente', params);
   };
+
+  window.thiaGetCurrentPublicHttpUrl = function (kind) {
+    const k = kind || (/clienteOficial\.html/i.test(location.pathname || '') ? 'clienteOficial' : 'cliente');
+    const cfg = window.THIA_PUBLIC_LINKS || {};
+    const base = k === 'clienteOficial' ? cfg.clienteOficial : cfg.cliente;
+    const qs = location.search || '';
+    return base ? (base + qs) : window.thiaGetPublicUrl(k, Object.fromEntries(new URLSearchParams(qs)));
+  };
+
+  window.thiaGetApkInstallUrl = function () {
+    const cfg = window.THIA_PUBLIC_LINKS || {};
+    const ofi = (window.thiaGetOficinaAtual && window.thiaGetOficinaAtual()) || {};
+    return ofi.apkUrl || ofi.linksPublicos?.apkUrl || cfg.apkUrl || cfg.apkShareBase || '';
+  };
+
+  window.thiaOpenExternalUrl = function (url) {
+    if (!url) return false;
+    try {
+      const Browser = window.Capacitor?.Plugins?.Browser;
+      if (Browser && typeof Browser.open === 'function') {
+        Browser.open({ url });
+        return true;
+      }
+    } catch (_) {}
+    const opened = window.open(url, '_blank');
+    if (opened) {
+      try { opened.focus(); } catch (_) {}
+      return true;
+    }
+    try { window.location.href = url; } catch (_) {}
+    return false;
+  };
+
+  window.thiaInjectPortalInstallBar = function (kind) {
+    if (document.getElementById('thiaPublicInstallBar')) return;
+    const path = String(location.pathname || '');
+    const isPortal = /cliente(?:Oficial)?\.html/i.test(path);
+    if (!isPortal) return;
+    const httpUrl = window.thiaGetCurrentPublicHttpUrl(kind);
+    const apkUrl = window.thiaGetApkInstallUrl();
+    if (!httpUrl && !apkUrl) return;
+    const bar = document.createElement('div');
+    bar.id = 'thiaPublicInstallBar';
+    bar.style.cssText = [
+      'position:fixed',
+      'left:12px',
+      'right:12px',
+      'bottom:12px',
+      'z-index:99999',
+      'display:flex',
+      'gap:8px',
+      'flex-wrap:wrap',
+      'align-items:center',
+      'justify-content:center',
+      'padding:10px',
+      'border:1px solid rgba(125,211,252,.35)',
+      'background:rgba(15,23,42,.94)',
+      'box-shadow:0 12px 32px rgba(0,0,0,.28)',
+      'border-radius:8px',
+      'font-family:Arial,sans-serif'
+    ].join(';');
+    const label = document.createElement('span');
+    label.textContent = isAppRuntime() ? 'Link publico aberto no app' : 'Portal publico';
+    label.style.cssText = 'color:#cbd5e1;font-size:12px;font-weight:700;margin-right:4px;';
+    bar.appendChild(label);
+    if (httpUrl) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Abrir no navegador';
+      btn.style.cssText = 'border:0;border-radius:6px;background:#7dd3fc;color:#020617;font-weight:800;padding:9px 12px;cursor:pointer;';
+      btn.onclick = () => window.thiaOpenExternalUrl(httpUrl);
+      bar.appendChild(btn);
+    }
+    if (apkUrl) {
+      const apk = document.createElement('button');
+      apk.type = 'button';
+      apk.textContent = 'Instalar APK';
+      apk.style.cssText = 'border:1px solid rgba(125,211,252,.4);border-radius:6px;background:transparent;color:#e0f2fe;font-weight:800;padding:8px 12px;cursor:pointer;';
+      apk.onclick = () => window.thiaOpenExternalUrl(apkUrl);
+      bar.appendChild(apk);
+    }
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = 'x';
+    close.setAttribute('aria-label', 'Fechar');
+    close.style.cssText = 'border:0;background:transparent;color:#94a3b8;font-weight:900;padding:8px;cursor:pointer;';
+    close.onclick = () => bar.remove();
+    bar.appendChild(close);
+    document.body.appendChild(bar);
+  };
+
+  window.thiaBuildWhatsAppUrl = function (phone, message, opts) {
+    opts = opts || {};
+    const fone = normalizarTelefoneBR(phone);
+    if (!fone) return '';
+    const text = encodeURIComponent(message || '');
+    if (opts.transport === 'app') {
+      return `whatsapp://send?phone=${fone}&text=${text}`;
+    }
+    if (opts.transport === 'web') {
+      return `https://web.whatsapp.com/send?phone=${fone}&text=${text}`;
+    }
+    if (opts.forceWaMe || isMobileRuntime()) {
+      return `https://wa.me/${fone}?text=${text}`;
+    }
+    return `https://web.whatsapp.com/send?phone=${fone}&text=${text}`;
+  };
+
+  function confirmarFallbackWebWhatsApp(opts) {
+    if (opts.confirmWebFallback === false) return true;
+    try {
+      return window.confirm('O WhatsApp app nao abriu ou foi cancelado. Deseja abrir o WhatsApp Web no navegador?');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function abrirWhatsAppWebOpcional(url, opts) {
+    if (!url) return false;
+    if (!confirmarFallbackWebWhatsApp(opts)) {
+      window.toast?.('WhatsApp Web nao aberto. Voce continuou no SaaS.', 'warn');
+      return false;
+    }
+    const opened = window.open(url, '_blank', 'noopener');
+    if (opened) {
+      try { opened.focus(); } catch (_) {}
+      return true;
+    }
+    if (opts.allowSameTabFallback === true && opts.fallbackNavigate !== false) {
+      try { window.location.href = url; return true; } catch (_) {}
+    }
+    window.toast?.('O navegador bloqueou o WhatsApp Web. Use a opcao de abrir pelo navegador quando quiser.', 'warn');
+    return false;
+  }
+
+  window.thiaOpenWhatsApp = function (phone, message, opts) {
+    opts = Object.assign({
+      fallbackNavigate: true,
+      preferDesktopApp: true,
+      confirmWebFallback: true,
+      appFallbackDelayMs: 2400,
+      allowSameTabFallback: false
+    }, opts || {});
+    if (opts.preferDesktopApp && !opts.forceWeb && !isMobileRuntime()) {
+      const appUrl = window.thiaBuildWhatsAppUrl(phone, message, Object.assign({}, opts, { transport: 'app' }));
+      if (appUrl) {
+        try {
+          window.location.href = appUrl;
+          if (opts.fallbackNavigate !== false) {
+            const startedAt = Date.now();
+            setTimeout(function () {
+              if (document.visibilityState === 'visible' && Date.now() - startedAt >= opts.appFallbackDelayMs) {
+                const webUrl = window.thiaBuildWhatsAppUrl(phone, message, Object.assign({}, opts, { transport: 'web' }));
+                abrirWhatsAppWebOpcional(webUrl, opts);
+              }
+            }, opts.appFallbackDelayMs);
+          }
+          return true;
+        } catch (_) {}
+      }
+    }
+    const url = window.thiaBuildWhatsAppUrl(phone, message, opts);
+    if (!url) return false;
+    const opened = window.open(url, '_blank', 'noopener');
+    if (opened) {
+      try { opened.focus(); } catch (_) {}
+      return true;
+    }
+    if (opts.allowSameTabFallback === true && opts.fallbackNavigate !== false) {
+      try { window.location.href = url; } catch (_) {}
+    } else if (opts.fallbackNavigate !== false) {
+      window.toast?.('O navegador bloqueou a abertura do WhatsApp. A tela atual foi preservada.', 'warn');
+    }
+    return false;
+  };
+
+  document.addEventListener('DOMContentLoaded', function () {
+    setTimeout(function () {
+      window.thiaInjectPortalInstallBar();
+    }, 400);
+  });
 })();
