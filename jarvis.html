@@ -818,6 +818,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
           <div class="j-card-body" style="padding:0;">
             <table class="j-table">
               <thead><tr><th>Ref / Código</th><th>Descrição</th><th>Custo</th><th>Venda</th><th>Qtd</th><th>Mín</th><th>Status</th><th>Ações</th></tr></thead>
+              <tbody id="tbEstoqueBusca"><tr><td colspan="8" style="padding:12px;border-bottom:1px solid var(--border);"><input class="j-input" id="buscaEstoquePecas" placeholder="Pesquisar peça por código, descrição, marca, fornecedor ou NF..." oninput="window._estoqueBuscaPecas=this.value;window.renderEstoque&&window.renderEstoque()"></td></tr></tbody>
               <tbody id="tbEstoque"></tbody>
             </table>
           </div>
@@ -881,7 +882,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
           <div class="j-card-title">FLUXO DE CAIXA E TÍTULOS</div>
           <div style="display:flex;gap:8px;align-items:center;">
             <select class="j-select" style="width:120px" id="filtroFinTipo" onchange="window.renderFinanceiro()"><option value="">Todos</option><option value="Entrada">Receitas</option><option value="Saída">Despesas</option></select>
-            <select class="j-select" style="width:130px" id="filtroFinStatus" onchange="window.renderFinanceiro()"><option value="">Todos</option><option value="Pago">Liquidado</option><option value="Pendente">Pendente</option></select>
+            <select class="j-select" style="width:170px" id="filtroFinStatus" onchange="window.renderFinanceiro()"><option value="">Todos ativos</option><option value="Pago">Liquidado</option><option value="Pendente">Pendente</option><option value="Cancelado">Cancelados / Reemitidos</option></select>
             <input type="month" class="j-input" style="width:150px" id="filtroFinMes" onchange="window.renderFinanceiro()">
             <button class="btn-primary" onclick="abrirModal('modalFin');window.prepFin()">+ LANÇAMENTO</button>
           </div>

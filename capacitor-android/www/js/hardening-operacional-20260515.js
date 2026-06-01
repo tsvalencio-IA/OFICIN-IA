@@ -1187,10 +1187,30 @@
   function overrideEstoqueFornecedores() {
     W.renderEstoque = function () {
       const tb = byId('tbEstoque'); if (!tb) return;
-      tb.innerHTML = (J().estoque || []).map(p => {
+      const termoEstoque = norm((byId('buscaEstoquePecas')?.value || W._estoqueBuscaPecas || '').trim());
+      const listaEstoque = (J().estoque || []).filter(p => {
+        if (!termoEstoque) return true;
+        return norm([
+          p.codigo,
+          p.codigoFornecedor,
+          p.codigoComercial,
+          p.oem,
+          p.ean,
+          p.desc,
+          p.descricao,
+          p.marca,
+          p.ncm,
+          p.cfop,
+          p.fornecedor,
+          p.fornecedorNome,
+          p.nfNumero,
+          p.notaFiscal
+        ].filter(Boolean).join(' ')).includes(termoEstoque);
+      });
+      tb.innerHTML = listaEstoque.map(p => {
         const crit = num(p.qtd) <= num(p.min);
         return `<tr class="${crit?'stock-critical':''}"><td style="font-family:var(--fm);font-size:.75rem;color:var(--muted)">${esc(p.codigo||p.codigoFornecedor||'-')}</td><td><strong>${esc(p.desc||p.descricao||'-')}</strong><br><small>${esc([p.marca,p.ncm,p.cfop].filter(Boolean).join(' | '))}</small></td><td style="font-family:var(--fm)">${moeda(p.custo)}</td><td style="font-family:var(--fm);color:var(--success)">${moeda(p.venda)}</td><td style="font-family:var(--fm);font-weight:700;color:${crit?'var(--danger)':'var(--text)'}">${esc(p.qtd||0)}</td><td style="font-family:var(--fm);color:var(--muted)">${esc(p.min||0)}</td><td>${crit?'<span class="pill pill-danger">CRITICO</span>':'<span class="pill pill-green">OK</span>'}</td><td><button class="btn-ghost" onclick="window.prepPeca && window.prepPeca('edit','${esc(p.id)}');abrirModal('modalPeca')">EDITAR</button><button class="btn-danger" onclick="window.excluirPecaDef && window.excluirPecaDef('${esc(p.id)}')" style="margin-left:4px;">EXCLUIR</button></td></tr>`;
-      }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">Nenhum item</td></tr>';
+      }).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${termoEstoque ? 'Nenhuma peça encontrada para a busca' : 'Nenhum item'}</td></tr>`;
     };
     W.prepFornec = function (mode, id) {
       if (arguments.length === 1) { id = mode; mode = id ? 'edit' : 'add'; }
