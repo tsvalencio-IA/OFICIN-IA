@@ -147,40 +147,15 @@
   }
 
   function addNFRowCheckbox(row) {
-    if (!row || row.querySelector('.nf-item-check')) return;
-    row.insertAdjacentHTML('afterbegin', `<label class="nf-batch-check"><input type="checkbox" class="nf-item-check" checked> vinculo em lote</label>`);
+    if (!row) return;
+    row.querySelectorAll('.nf-batch-check').forEach(el => el.remove());
+    row.querySelectorAll('.nf-item-check').forEach(el => el.remove());
   }
 
   function ensureNFBatchTools() {
     const cont = byId('containerItensNF');
     if (!cont) return;
-    let tools = byId('nfBatchVinculoTools');
-    if (!tools) {
-      tools = D.createElement('div');
-      tools.id = 'nfBatchVinculoTools';
-      tools.className = 'nf-batch-tools';
-      tools.innerHTML = `
-        <div class="op-title">VINCULO EM LOTE DA NF</div>
-        <div class="form-row cols-3" style="align-items:end;">
-          <div class="form-group"><label class="j-label">Buscar placa / O.S.</label><input class="j-input" id="nfBatchOSBusca" placeholder="Digite a placa ou O.S." oninput="window.nfBatchFiltrarOS(this.value)"></div>
-          <div class="form-group"><label class="j-label">Veiculo / O.S. destino</label><select class="j-select" id="nfBatchOSSelect"></select></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button type="button" class="btn-ghost" onclick="window.nfBatchMarcarTodos(true)">MARCAR TODOS</button>
-            <button type="button" class="btn-ghost" onclick="window.nfBatchMarcarTodos(false)">LIMPAR</button>
-            <button type="button" class="btn-primary" onclick="window.nfBatchAplicar('selecionados')">VINCULAR MARCADOS</button>
-            <button type="button" class="btn-outline" onclick="window.nfBatchAplicar('todos')">VINCULAR TODOS A ESTA O.S.</button>
-            <button type="button" class="btn-outline" onclick="window.nfBatchEstoqueSelecionados()">MANTER MARCADOS EM ESTOQUE</button>
-          </div>
-        </div>
-        <div style="font-family:var(--fm);font-size:.62rem;color:var(--muted);line-height:1.4;">Ao vincular a O.S./placa, a entrada fiscal registra a compra, cria vinculo interno e baixa automaticamente o saldo disponivel do estoque. A peca aparece na aba secreta Pecas Reais somente com *177.</div>`;
-      cont.parentElement?.insertBefore(tools, cont);
-    }
-    const sel = byId('nfBatchOSSelect');
-    if (sel) {
-      const old = sel.value;
-      sel.innerHTML = osOptionsHTML(old, byId('nfBatchOSBusca')?.value || '');
-      if (old && Array.from(sel.options).some(opt => opt.value === old)) sel.value = old;
-    }
+    byId('nfBatchVinculoTools')?.remove();
     cont.querySelectorAll('.nf-real-row').forEach(addNFRowCheckbox);
   }
   W.nfBatchFiltrarOS = function () {
@@ -386,90 +361,206 @@
   function codigoCustoReal(item) {
     return item?.codigoComercial || item?.codigoFornecedor || item?.codigo || item?.oem || item?.ean || '';
   }
+  function nfKeyCustoReal(item) {
+    return item?.nfId || item?.idNF || item?.notaFiscalId || item?.chaveNFe || item?.chave || item?.nfNumero || item?.nf || item?.notaFiscal || '';
+  }
   function chaveCustoReal(item, osId, placa) {
     const desc = norm(item?.desc || item?.descricao || item?.descricaoOriginal || '');
-    return item?.origemNFItemKey || [
-      item?.nfId || item?.idNF || item?.chaveNFe || '',
-      item?.numeroItem || item?.nItem || item?.item || '',
-      item?.codigoFornecedor || '',
-      item?.codigoComercial || item?.oem || item?.codigo || '',
+    const origem = item?.origemNFItemKey || item?.nfItemKey || item?.itemNFKey || item?.vinculoKey || '';
+    const nf = nfKeyCustoReal(item);
+    const codigo = codigoPecaNormalizado(codigoCustoReal(item) || item?.codigoFornecedor || '');
+    const destino = item?.destinoKey || item?.destinoIndice || item?.destinoIndex || '';
+    if (nf && (codigo || desc)) return [
+      nf,
+      codigo,
+      desc,
+      osId || '',
+      placa || ''
+    ].join('|');
+    if (origem) return [
+      origem,
+      osId || item?.osId || '',
+      placa || item?.placa || '',
+      destino || ''
+    ].join('|');
+    return [
+      nf,
+      codigo,
       desc,
       osId || '',
       placa || ''
     ].join('|');
   }
+  function prioridadeOrigemCustoReal(origem) {
+    const o = norm(origem || '');
+    if (o.includes('nf vinculada')) return 30;
+    if (o.includes('o s') || o.includes('pecas reais')) return 20;
+    if (o.includes('item de nf')) return 10;
+    return 0;
+  }
+  function qualidadeCustoReal(row) {
+    return prioridadeOrigemCustoReal(row?.origem) * 100000
+      + (row?.nfNumero ? 1000 : 0)
+      + (row?.fornecedor ? 500 : 0)
+      + (row?.osId ? 100 : 0)
+      + (num(row?.total) > 0 ? 10 : 0)
+      + (num(row?.qtd) > 0 ? 1 : 0);
+  }
+  function registrarCustoReal(rowsByKey, row) {
+    const key = row?._key || '';
+    if (!key) return;
+    const atual = rowsByKey.get(key);
+    if (!atual || qualidadeCustoReal(row) > qualidadeCustoReal(atual)) rowsByKey.set(key, row);
+  }
+  function nfNormCustoReal(v) {
+    return String(v || '').toUpperCase().replace(/^NF\s+/i, '').replace(/[^A-Z0-9]/g, '');
+  }
+  function textoCompatCustoReal(row) {
+    return norm([row?.codigo, row?.desc].filter(Boolean).join(' '));
+  }
+  function tokensCustoReal(row) {
+    const stop = new Set(['de','da','do','das','dos','com','para','por','peca','pecas','kit','un','unit']);
+    return textoCompatCustoReal(row).split(/\s+/).filter(t => t.length >= 3 && !stop.has(t));
+  }
+  function overlapCustoReal(a, b) {
+    const ta = new Set(tokensCustoReal(a));
+    const tb = new Set(tokensCustoReal(b));
+    if (!ta.size || !tb.size) return 0;
+    let inter = 0;
+    ta.forEach(t => { if (tb.has(t)) inter += 1; });
+    return inter / Math.min(ta.size, tb.size);
+  }
+  function mesmoDestinoCustoReal(a, b) {
+    const osA = String(a?.osId || '');
+    const osB = String(b?.osId || '');
+    const placaA = placaNorm(a?.placa || '');
+    const placaB = placaNorm(b?.placa || '');
+    return (osA && osB && osA === osB) || (placaA && placaB && (placaA === placaB || placaA.includes(placaB) || placaB.includes(placaA)));
+  }
+  function mesmoNFCustoReal(a, b) {
+    const nfA = nfNormCustoReal(a?.nfNumero || '');
+    const nfB = nfNormCustoReal(b?.nfNumero || '');
+    return nfA && nfB && nfA === nfB;
+  }
+  function codigoCompatCustoReal(a, b) {
+    const ca = codigoPecaNormalizado(a?.codigo || '');
+    const cb = codigoPecaNormalizado(b?.codigo || '');
+    const ta = codigoPecaNormalizado(textoCompatCustoReal(a));
+    const tb = codigoPecaNormalizado(textoCompatCustoReal(b));
+    if (ca && cb && ca === cb) return true;
+    if (ca && tb && tb.includes(ca)) return true;
+    if (cb && ta && ta.includes(cb)) return true;
+    return false;
+  }
+  function valorCompatCustoReal(a, b) {
+    const totalA = Math.round(num(a?.total) * 100);
+    const totalB = Math.round(num(b?.total) * 100);
+    const unitA = Math.round(num(a?.custoUnit) * 100);
+    const unitB = Math.round(num(b?.custoUnit) * 100);
+    return (totalA > 0 && totalA === totalB) || (unitA > 0 && unitA === unitB);
+  }
+  function rowsCustoRealEquivalentes(a, b) {
+    if (!mesmoNFCustoReal(a, b) || !mesmoDestinoCustoReal(a, b)) return false;
+    if (codigoCompatCustoReal(a, b)) return true;
+    const overlap = overlapCustoReal(a, b);
+    return overlap >= 0.55 && valorCompatCustoReal(a, b);
+  }
+  function consolidarCustosReais(rows) {
+    const out = [];
+    (rows || []).forEach(row => {
+      const idx = out.findIndex(atual => rowsCustoRealEquivalentes(atual, row));
+      if (idx < 0) { out.push(row); return; }
+      if (qualidadeCustoReal(row) > qualidadeCustoReal(out[idx])) out[idx] = row;
+    });
+    return out;
+  }
   function renderResumoCustosReaisVeiculo(placaFiltro, hits, termoRaw) {
     if (!secret177() || !placaFiltro) return '';
     const osList = Array.isArray(hits) ? hits : [];
     const osIds = new Set(osList.map(o => String(o.id || '')).filter(Boolean));
+    const osComPecasReais = new Set(osList
+      .filter(o => Array.isArray(o.pecasReais) && o.pecasReais.length)
+      .map(o => String(o.id || ''))
+      .filter(Boolean));
     const osById = id => (J().os || []).find(o => String(o.id || '') === String(id || '')) || {};
     const rows = [];
-    const seen = new Set();
+    const chavesEspelhadasNaOS = new Set();
+    const chavesComplementares = new Set();
     const placaOk = value => {
       const p = placaNorm(value || '');
       return p && (p === placaFiltro || p.includes(placaFiltro) || placaFiltro.includes(p));
     };
-    const add = (origem, item, osBase, extra) => {
+    const add = (origem, item, osBase, extra, opts) => {
       const os = osBase || {};
       const v = veiculoByOS(os);
       const placa = placaNorm(item?.placa || os.placa || v.placa || '');
       const osId = item?.osId || os.id || '';
       if (!osIds.has(String(osId || '')) && !placaOk(placa)) return;
+      if (opts?.skipIfOSHasReais && osId && osComPecasReais.has(String(osId))) return;
       const key = chaveCustoReal(item, osId, placa);
-      if (key && seen.has(key)) return;
-      if (key) seen.add(key);
-      const total = totalCustoReal(item);
+      if (opts?.skipIfInOS && key && chavesEspelhadasNaOS.has(key)) return;
+      if (opts?.complementar && key && chavesComplementares.has(key)) return;
+      const qtd = qtdCustoReal(item);
+      const origemOSReal = norm(origem || '').includes('pecas reais');
+      const unitOSReal = num(item?.valorCompra || item?.custo || item?.valorUnitario || item?.custoUnit || item?.valorCusto || item?.precoCusto || item?.unitario);
+      const total = origemOSReal && unitOSReal > 0 ? unitOSReal * qtd : totalCustoReal(item);
       rows.push(Object.assign({
+        _key: key,
         origem,
         codigo: codigoCustoReal(item),
         desc: item?.desc || item?.descricao || item?.descricaoOriginal || '-',
-        qtd: qtdCustoReal(item),
+        qtd,
         total,
-        custoUnit: total / qtdCustoReal(item),
+        custoUnit: total / qtd,
         placa: placa || os.placa || v.placa || '',
         osId,
         nfNumero: item?.nfNumero || item?.nf || item?.notaFiscal || '',
         fornecedor: item?.fornecedorNome || item?.fornecedor || '',
         data: item?.dataCompra || item?.dataNF || item?.dataMov || item?.createdAt || ''
       }, extra || {}));
+      if (opts?.markOS && key) chavesEspelhadasNaOS.add(key);
+      if (opts?.complementar && key) chavesComplementares.add(key);
     };
-    osList.forEach(os => (Array.isArray(os.pecasReais) ? os.pecasReais : []).forEach(p => add('O.S. / pecas reais', p, os)));
-    (J().nfItensVinculos || []).forEach(v => add('NF vinculada a O.S.', v, osById(v.osId)));
+    osList.forEach(os => (Array.isArray(os.pecasReais) ? os.pecasReais : []).forEach(p => add('O.S. / pecas reais', p, os, null, { markOS: true })));
+    (J().nfItensVinculos || []).forEach(v => add('NF vinculada a O.S.', v, osById(v.osId), null, { skipIfOSHasReais: true, skipIfInOS: true, complementar: true }));
     (J().notasFiscaisEntrada || []).forEach(n => {
       (Array.isArray(n.itens) ? n.itens : []).forEach(i => add('Item de NF', Object.assign({}, i, {
         nfId: n.id || i.nfId,
         nfNumero: n.numero || i.nfNumero,
         fornecedor: n.fornecedorSnapshot?.nome || n.fornecedorNome || i.fornecedor,
         dataCompra: n.dataNF || n.dataEmissao || n.createdAt || i.dataCompra
-      }), osById(i.osId)));
+      }), osById(i.osId), null, { skipIfOSHasReais: true, skipIfInOS: true, complementar: true }));
     });
-    rows.sort((a,b) => String(b.data || '').localeCompare(String(a.data || '')));
+    const rowsLimpas = rows.map(r => {
+      const copy = Object.assign({}, r);
+      delete copy._key;
+      return copy;
+    });
+    rowsLimpas.sort((a,b) => String(b.data || '').localeCompare(String(a.data || '')));
     const filtradas = String(termoRaw || '').trim()
-      ? rows.filter(r => itemCombinaTermoHistorico(r, termoRaw))
-      : rows.slice();
-    rows.length = 0;
-    rows.push(...filtradas);
-    if (!rows.length) {
+      ? rowsLimpas.filter(r => itemCombinaTermoHistorico(r, termoRaw))
+      : rowsLimpas.slice();
+    if (!filtradas.length) {
       return `<div class="op-card" style="border-color:rgba(255,59,59,.35);background:rgba(255,59,59,.045);">
         <div class="op-title">RESUMO DE CUSTOS REAIS *177</div>
         <div style="font-family:var(--fm);font-size:.72rem;color:var(--muted);">Nenhum custo real de peca/NF carregado para a placa ${esc(placaFiltro)}. O historico de O.S. abaixo continua disponivel.</div>
       </div>`;
     }
-    const total = rows.reduce((s,r) => s + num(r.total), 0);
-    const qtd = rows.reduce((s,r) => s + num(r.qtd), 0);
-    const nfs = Array.from(new Set(rows.map(r => r.nfNumero).filter(Boolean)));
-    const fornecedores = Array.from(new Set(rows.map(r => r.fornecedor).filter(Boolean))).slice(0, 6);
+    const total = filtradas.reduce((s,r) => s + num(r.total), 0);
+    const qtd = filtradas.reduce((s,r) => s + num(r.qtd), 0);
+    const nfs = Array.from(new Set(filtradas.map(r => r.nfNumero).filter(Boolean)));
+    const fornecedores = Array.from(new Set(filtradas.map(r => r.fornecedor).filter(Boolean))).slice(0, 6);
     return `<div class="op-card" style="border-color:rgba(255,59,59,.35);background:rgba(255,59,59,.045);">
       <div class="op-title">RESUMO DE CUSTOS REAIS *177 - ${esc(placaFiltro)}</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:10px;">
-        <div><small style="color:var(--muted);font-family:var(--fm);">Itens reais</small><br><b>${esc(rows.length)}</b></div>
+        <div><small style="color:var(--muted);font-family:var(--fm);">Itens reais</small><br><b>${esc(filtradas.length)}</b></div>
         <div><small style="color:var(--muted);font-family:var(--fm);">Quantidade</small><br><b>${esc(qtd)}</b></div>
         <div><small style="color:var(--muted);font-family:var(--fm);">Custo real conhecido</small><br><b style="color:var(--danger);">${moeda(total)}</b></div>
         <div><small style="color:var(--muted);font-family:var(--fm);">NFs ligadas</small><br><b>${esc(nfs.length)}</b></div>
       </div>
       <div style="font-family:var(--fm);font-size:.64rem;color:var(--muted);margin-bottom:8px;">Fornecedores: ${esc(fornecedores.join(', ') || 'nao informado')}. Valores restritos a peca real/NF carregada nesta sessao.</div>
       <div class="op-table-wrap"><table class="op-table"><thead><tr><th>Origem</th><th>Codigo / peca</th><th>O.S.</th><th>NF / fornecedor</th><th>Qtd</th><th>Custo real</th><th>Data</th></tr></thead><tbody>
-      ${rows.slice(0, 80).map(r => `<tr>
+      ${filtradas.slice(0, 80).map(r => `<tr>
         <td>${esc(r.origem || '-')}</td>
         <td><b>${esc(r.codigo || '-')}</b><br>${esc(r.desc || '-')}</td>
         <td>${r.osId ? `<button class="btn-ghost" onclick="window.editarOS && window.editarOS('${esc(r.osId)}')">OS #${esc(String(r.osId).slice(-6).toUpperCase())}</button>` : '-'}<br><small>${esc(r.placa || '')}</small></td>

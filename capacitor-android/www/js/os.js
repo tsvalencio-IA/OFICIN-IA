@@ -238,6 +238,145 @@ function descricaoPecaLinhaOS(row, opt, estoqueId) {
     .trim();
 }
 
+function estoqueItemOS(estoqueId) {
+  if (!estoqueId) return null;
+  return (window.J?.estoque || []).find(p => String(p.id) === String(estoqueId)) || null;
+}
+
+function codigoPecaEstoqueOS(p) {
+  return String(p?.codigo || p?.codigoFornecedor || p?.codigoComercial || p?.oem || p?.ean || p?.ref || '').trim();
+}
+
+function fornecedorPecaEstoqueOS(p) {
+  return String(p?.fornecedor || p?.fornecedorNome || p?.nomeFornecedor || p?.forn || '').trim();
+}
+
+function nfPecaEstoqueOS(p) {
+  return String(p?.nfNumero || p?.notaFiscal || p?.nf || p?.numeroNF || p?.pedido || '').trim();
+}
+
+function dataCompraPecaEstoqueOS(p) {
+  const raw = p?.dataCompra || p?.dataNF || p?.dataEntrada || p?.createdAt || '';
+  return String(raw || '').slice(0, 10);
+}
+
+function valorCompraPecaEstoqueOS(p) {
+  return numBR(p?.valorCompra || p?.custo || p?.valorUnitario || p?.precoCusto || 0);
+}
+
+function optionPecaEstoqueOS(p, selected) {
+  const qtd = numBR(p?.qtd || 0);
+  const codigo = codigoPecaEstoqueOS(p);
+  const desc = String(p?.desc || p?.descricao || '').trim();
+  const fornecedor = fornecedorPecaEstoqueOS(p);
+  const nf = nfPecaEstoqueOS(p);
+  const custo = valorCompraPecaEstoqueOS(p);
+  const venda = numBR(p?.venda || p?.precoVenda || 0);
+  const detalhes = [
+    `${qtd}un`,
+    codigo || 'sem codigo',
+    desc || 'sem descricao',
+    fornecedor ? `Forn: ${fornecedor}` : '',
+    nf ? `NF: ${nf}` : '',
+    `Custo: ${moedaOS(custo)}`,
+    `Venda: ${moedaOS(venda)}`
+  ].filter(Boolean).join(' | ');
+  return `<option value="${escOS(p.id || '')}" data-codigo="${escOS(codigo)}" data-desc="${escOS(desc)}" data-custo="${custo}" data-venda="${venda}" data-fornecedor="${escOS(fornecedor)}" data-nf="${escOS(nf)}" data-data-compra="${escOS(dataCompraPecaEstoqueOS(p))}" data-ean="${escOS(p?.ean || '')}" data-ncm="${escOS(p?.ncm || '')}" data-cfop="${escOS(p?.cfop || '')}" ${selected ? 'selected' : ''}>${escOS(detalhes)}</option>`;
+}
+
+function aplicarPecaEstoqueSelecionadaOS(row, item, marcarBaixa) {
+  if (!row) return;
+  const info = row.querySelector('.peca-estoque-info');
+  if (!item) {
+    row.dataset.pecaCodigo = '';
+    row.dataset.pecaFornecedor = '';
+    row.dataset.pecaNf = '';
+    row.dataset.pecaDataCompra = '';
+    if (info) info.innerHTML = '';
+    return;
+  }
+  const codigo = codigoPecaEstoqueOS(item);
+  const desc = String(item.desc || item.descricao || '').trim();
+  const fornecedor = fornecedorPecaEstoqueOS(item);
+  const nf = nfPecaEstoqueOS(item);
+  const dataCompra = dataCompraPecaEstoqueOS(item);
+  const custo = valorCompraPecaEstoqueOS(item);
+  const venda = numBR(item.venda || item.precoVenda || 0);
+  row.dataset.pecaCodigo = codigo;
+  row.dataset.pecaFornecedor = fornecedor;
+  row.dataset.pecaNf = nf;
+  row.dataset.pecaDataCompra = dataCompra;
+  const custoInput = row.querySelector('.peca-custo');
+  const vendaInput = row.querySelector('.peca-venda');
+  if (custoInput && (marcarBaixa || !String(custoInput.value || '').trim() || numBR(custoInput.value) <= 0)) custoInput.value = custo.toFixed(2).replace('.', ',');
+  if (vendaInput && (marcarBaixa || !String(vendaInput.value || '').trim() || numBR(vendaInput.value) <= 0)) vendaInput.value = venda.toFixed(2).replace('.', ',');
+  const baixa = row.querySelector('.peca-baixa-real');
+  if (baixa && marcarBaixa) baixa.checked = true;
+  if (info) {
+    info.innerHTML = [
+      codigo ? `<b>Codigo:</b> ${escOS(codigo)}` : '<b>Codigo:</b> sem codigo',
+      desc ? `<b>Descricao:</b> ${escOS(desc)}` : '',
+      fornecedor ? `<b>Fornecedor:</b> ${escOS(fornecedor)}` : '',
+      nf ? `<b>NF/Pedido:</b> ${escOS(nf)}` : '',
+      dataCompra ? `<b>Data compra:</b> ${escOS(dataCompra)}` : '',
+      `<b>Custo:</b> ${moedaOS(custo)}`,
+      `<b>Venda:</b> ${moedaOS(venda)}`,
+      `<b>Saldo:</b> ${numBR(item.qtd || 0)}`
+    ].filter(Boolean).join(' &nbsp; | &nbsp; ');
+  }
+}
+
+function atualizarPecaOSInfoRow(row) {
+  const sel = row?.querySelector?.('.peca-sel');
+  if (!sel || !sel.value) return aplicarPecaEstoqueSelecionadaOS(row, null, false);
+  aplicarPecaEstoqueSelecionadaOS(row, estoqueItemOS(sel.value), false);
+}
+window.atualizarPecaOSInfoRow = atualizarPecaOSInfoRow;
+
+function pecaOSBaixaRealAtiva(row) {
+  const sel = row?.querySelector?.('.peca-sel');
+  if (!sel || !sel.value || sel.value === '__avulsa__') return false;
+  return !!row.querySelector('.peca-baixa-real')?.checked;
+}
+
+function pecaRealFromEstoqueOS(row, idx) {
+  if (!pecaOSBaixaRealAtiva(row)) return null;
+  const sel = row.querySelector('.peca-sel');
+  const item = estoqueItemOS(sel.value);
+  if (!item) return null;
+  const qtd = numBR(row.querySelector('.peca-qtd')?.value || 1) || 1;
+  const valorCompra = numBR(row.querySelector('.peca-custo')?.value || valorCompraPecaEstoqueOS(item));
+  const codigo = row.dataset.pecaCodigo || codigoPecaEstoqueOS(item);
+  const desc = descricaoPecaLinhaOS(row, sel.options?.[sel.selectedIndex], sel.value) || item.desc || item.descricao || '';
+  return {
+    origem: 'os_estoque',
+    origemAutoOS: true,
+    origemAutoKey: `os-estoque-${idx}`,
+    estoqueId: sel.value,
+    codigo,
+    desc,
+    descricao: desc,
+    qtd,
+    fornecedor: row.dataset.pecaFornecedor || fornecedorPecaEstoqueOS(item),
+    nf: row.dataset.pecaNf || nfPecaEstoqueOS(item),
+    nfNumero: row.dataset.pecaNf || nfPecaEstoqueOS(item),
+    dataCompra: row.dataset.pecaDataCompra || dataCompraPecaEstoqueOS(item),
+    valorCompra,
+    custo: valorCompra,
+    venda: numBR(row.querySelector('.peca-venda')?.value || item.venda || 0)
+  };
+}
+
+function pecasReaisAutomaticasOS() {
+  const out = [];
+  document.querySelectorAll('#containerPecasOS > div:not(.cilia-peca-wrap)').forEach((row, idx) => {
+    if (row.dataset?.pecaAvulsa === '1') return;
+    const pr = pecaRealFromEstoqueOS(row, idx);
+    if (pr) out.push(pr);
+  });
+  return out;
+}
+
 function montarMensagemStatusClienteOS(os, status, cliente, veiculo) {
   os = os || {};
   cliente = cliente || {};
@@ -1892,16 +2031,18 @@ window.adicionarPecaOS = function() {
     `;
   } else {
     // Cliente normal — usa estoque, mas permite peça avulsa se não tiver no estoque
-    sel.style.cssText = 'display:grid;grid-template-columns:1fr 80px 90px 90px 32px;gap:8px;align-items:center;';
-    const opts = '<option value="">Selecionar peça...</option>'
-      + J.estoque.filter(p => (p.qtd || 0) > 0).map(p => `<option value="${p.id}" data-venda="${p.venda || 0}" data-desc="${p.desc || ''}">[${p.qtd}un] ${p.desc} — ${moeda(p.venda)}</option>`).join('')
-      + '<option value="__avulsa__" data-venda="0" data-desc="">➕ Peça não cadastrada (digitar manualmente)</option>';
+    sel.style.cssText = 'display:grid;grid-template-columns:minmax(260px,1fr) 80px 90px 90px 190px 32px;gap:8px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.14);';
+    const optsCompleto = '<option value="">Selecionar peca...</option>'
+      + J.estoque.filter(p => (p.qtd || 0) > 0).map(p => optionPecaEstoqueOS(p, false)).join('')
+      + '<option value="__avulsa__" data-venda="0" data-desc="">+ Peca nao cadastrada (digitar manualmente)</option>';
     sel.innerHTML = `
-      <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)">${opts}</select>
+      <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)">${optsCompleto}</select>
       <input type="number" class="j-input peca-qtd" value="1" min="1" placeholder="Qtd" oninput="window.calcOSTotal()" title="Quantidade da peça no orçamento">
       <input type="text" inputmode="decimal" class="j-input peca-custo" value="0,00" placeholder="Custo" oninput="window.calcOSTotal()" title="Custo unitário interno da peça">
       <input type="text" inputmode="decimal" class="j-input peca-venda" value="0,00" placeholder="Venda" oninput="window.calcOSTotal()" title="Valor unitário de venda/orçamento da peça">
+      <label style="display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:.62rem;color:var(--ok);line-height:1.2;"><input type="checkbox" class="peca-baixa-real" checked style="width:auto;min-height:0;"> usar como peça real / baixar estoque</label>
       <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">✕</button>
+      <div class="peca-estoque-info" style="grid-column:1/-1;font-family:var(--fm);font-size:.62rem;color:var(--muted);line-height:1.45;"></div>
     `;
   }
   if($('containerPecasOS')) $('containerPecasOS').appendChild(sel); window.calcOSTotal();
@@ -1954,17 +2095,24 @@ window.renderPecaOSRow = function(p) {
   } else {
     // Cliente normal (estoque)
     const vBruto = numBR(p.venda || p.v || 0);
-    div.style.cssText = 'display:grid;grid-template-columns:1fr 80px 90px 90px 32px;gap:8px;align-items:center;';
-    const opts = '<option value="">' + p.desc + '</option>' + (J.estoque||[]).filter(x => (x.qtd || 0) > 0 || x.id === p.estoqueId).map(x => `<option value="${x.id}" data-venda="${x.venda || 0}" data-desc="${x.desc || ''}" ${x.id === p.estoqueId ? 'selected' : ''}>[${x.qtd}un] ${x.desc}</option>`).join('');
+    div.style.cssText = 'display:grid;grid-template-columns:minmax(260px,1fr) 80px 90px 90px 190px 32px;gap:8px;align-items:center;background:rgba(34,197,94,0.04);padding:6px;border-radius:3px;border:1px solid rgba(34,197,94,0.14);';
+    div.dataset.pecaCodigo = p.codigo || '';
+    div.dataset.pecaFornecedor = p.fornecedor || p.fornecedorNome || '';
+    div.dataset.pecaNf = p.nf || p.nfNumero || '';
+    div.dataset.pecaDataCompra = p.dataCompra || '';
+    const opts = '<option value="">' + escOS(p.desc || 'Selecionar peca...') + '</option>' + (J.estoque||[]).filter(x => (x.qtd || 0) > 0 || x.id === p.estoqueId).map(x => optionPecaEstoqueOS(x, x.id === p.estoqueId)).join('');
     div.innerHTML = `
       <select class="j-select peca-sel" onchange="window.selecionarPecaOS(this)">${opts}</select>
       <input type="number" class="j-input peca-qtd" value="${p.qtd || p.q || 1}" min="1" oninput="window.calcOSTotal()" title="Quantidade da peça no orçamento">
       <input type="text" inputmode="decimal" class="j-input peca-custo" value="${numBR(p.custo || p.c || 0).toFixed(2).replace('.', ',')}" oninput="window.calcOSTotal()" title="Custo unitário interno da peça">
       <input type="text" inputmode="decimal" class="j-input peca-venda" value="${vBruto.toFixed(2).replace('.', ',')}" oninput="window.calcOSTotal()" title="Valor unitário de venda/orçamento da peça">
+      <label style="display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:.62rem;color:var(--ok);line-height:1.2;"><input type="checkbox" class="peca-baixa-real" ${p.baixarEstoqueReal === true ? 'checked' : ''} style="width:auto;min-height:0;"> usar como peça real / baixar estoque</label>
       <button type="button" onclick="this.parentElement.remove();window.calcOSTotal()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:32px;height:32px;">✕</button>
+      <div class="peca-estoque-info" style="grid-column:1/-1;font-family:var(--fm);font-size:.62rem;color:var(--muted);line-height:1.45;"></div>
     `;
   }
   if($('containerPecasOS')) $('containerPecasOS').appendChild(div);
+  atualizarPecaOSInfoRow(div);
 };
 
 window.selecionarPecaOS = function(sel) {
@@ -1983,7 +2131,7 @@ window.selecionarPecaOS = function(sel) {
     `;
     row.querySelector('.peca-desc-livre').focus();
   } else {
-    sel.parentElement.querySelector('.peca-venda').value = numBR(opt.dataset.venda || 0).toFixed(2).replace('.', ',');
+    aplicarPecaEstoqueSelecionadaOS(sel.parentElement, estoqueItemOS(opt.value), true);
   }
   window.calcOSTotal();
 };
@@ -2401,7 +2549,7 @@ window.salvarOS = async function() {
     const sel = row.querySelector('.peca-sel');
     const opt = sel?.options[sel.selectedIndex];
     const estoqueId = sel?.value || '';
-    const codigo = row.querySelector('.peca-codigo')?.value?.trim() || '';
+    const codigo = row.querySelector('.peca-codigo')?.value?.trim() || row.dataset?.pecaCodigo || opt?.dataset?.codigo || '';
     const descPeca = descricaoPecaLinhaOS(row, opt, estoqueId);
     const qtd = numBR(row.querySelector('.peca-qtd')?.value || 1) || 1;
     const venda = numBR(row.querySelector('.peca-venda')?.value || 0);
@@ -2413,7 +2561,11 @@ window.salvarOS = async function() {
       estoqueId,
       codigo,
       desc: descPeca,
-      qtd: qtd, custo: custo, venda: venda
+      qtd: qtd, custo: custo, venda: venda,
+      baixarEstoqueReal: pecaOSBaixaRealAtiva(row),
+      fornecedor: row.dataset?.pecaFornecedor || opt?.dataset?.fornecedor || '',
+      nf: row.dataset?.pecaNf || opt?.dataset?.nf || '',
+      dataCompra: row.dataset?.pecaDataCompra || opt?.dataset?.dataCompra || ''
     });
   });
 
@@ -2491,6 +2643,7 @@ window.salvarOS = async function() {
   document.querySelectorAll('#containerPecasReais > div').forEach(row => {
     let metaPecaReal = {};
     try { metaPecaReal = JSON.parse(row.querySelector('.pr-meta')?.value || '{}') || {}; } catch (_) { metaPecaReal = {}; }
+    if (metaPecaReal.origemAutoOS === true) return;
     const pr = Object.assign({}, metaPecaReal, {
       codigo: row.querySelector('.pr-codigo')?.value?.trim() || '',
       desc: row.querySelector('.pr-desc')?.value?.trim() || '',
@@ -2505,7 +2658,9 @@ window.salvarOS = async function() {
     pr.nfNumero = pr.nf;
     if (pr.desc || pr.codigo) _pecasReais.push(pr);
   });
-  if (document.getElementById('containerPecasReais') && window._pecasReaisDesbloqueadas === true) payload.pecasReais = _pecasReais;
+  const _pecasReaisAutoOS = pecasReaisAutomaticasOS();
+  _pecasReaisAutoOS.forEach(pr => _pecasReais.push(pr));
+  if (document.getElementById('containerPecasReais') && (window._pecasReaisDesbloqueadas === true || _pecasReaisAutoOS.length)) payload.pecasReais = _pecasReais;
   // LOTE C — Persistir próxima revisão (data e/ou KM) para o cliente ver
   if ($v('osProxRev')) payload.proxRev = $v('osProxRev');
   if ($v('osProxKm'))  payload.proxKm  = $v('osProxKm');
@@ -3576,7 +3731,7 @@ window.gerarPDFOS = async function() {
     const sel = row.querySelector('.peca-sel');
     const opt = sel?.options?.[sel.selectedIndex];
     const estoqueId = sel?.value || '';
-    const codigo = row.querySelector('.peca-codigo')?.value?.trim() || '';
+    const codigo = row.querySelector('.peca-codigo')?.value?.trim() || row.dataset?.pecaCodigo || opt?.dataset?.codigo || '';
     const desc = descricaoPecaLinhaOS(row, opt, estoqueId);
     const qtd = numBR(row.querySelector('.peca-qtd')?.value || 0) || 1;
     const unit = numBR(row.querySelector('.peca-venda')?.value || 0);
@@ -4332,7 +4487,7 @@ window.pecasCotacaoDaTelaOS = function() {
     const sel = row.querySelector('.peca-sel');
     const opt = sel?.options?.[sel.selectedIndex];
     const estoqueId = sel?.value || '';
-    const codigo = row.querySelector('.peca-codigo')?.value?.trim() || '';
+    const codigo = row.querySelector('.peca-codigo')?.value?.trim() || row.dataset?.pecaCodigo || opt?.dataset?.codigo || '';
     const desc = descricaoPecaLinhaOS(row, opt, estoqueId);
     const qtd = numBR(row.querySelector('.peca-qtd')?.value || 1) || 1;
     const unit = numBR(row.querySelector('.peca-venda')?.value || 0);

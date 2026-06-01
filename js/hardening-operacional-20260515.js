@@ -147,40 +147,15 @@
   }
 
   function addNFRowCheckbox(row) {
-    if (!row || row.querySelector('.nf-item-check')) return;
-    row.insertAdjacentHTML('afterbegin', `<label class="nf-batch-check"><input type="checkbox" class="nf-item-check" checked> vinculo em lote</label>`);
+    if (!row) return;
+    row.querySelectorAll('.nf-batch-check').forEach(el => el.remove());
+    row.querySelectorAll('.nf-item-check').forEach(el => el.remove());
   }
 
   function ensureNFBatchTools() {
     const cont = byId('containerItensNF');
     if (!cont) return;
-    let tools = byId('nfBatchVinculoTools');
-    if (!tools) {
-      tools = D.createElement('div');
-      tools.id = 'nfBatchVinculoTools';
-      tools.className = 'nf-batch-tools';
-      tools.innerHTML = `
-        <div class="op-title">VINCULO EM LOTE DA NF</div>
-        <div class="form-row cols-3" style="align-items:end;">
-          <div class="form-group"><label class="j-label">Buscar placa / O.S.</label><input class="j-input" id="nfBatchOSBusca" placeholder="Digite a placa ou O.S." oninput="window.nfBatchFiltrarOS(this.value)"></div>
-          <div class="form-group"><label class="j-label">Veiculo / O.S. destino</label><select class="j-select" id="nfBatchOSSelect"></select></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button type="button" class="btn-ghost" onclick="window.nfBatchMarcarTodos(true)">MARCAR TODOS</button>
-            <button type="button" class="btn-ghost" onclick="window.nfBatchMarcarTodos(false)">LIMPAR</button>
-            <button type="button" class="btn-primary" onclick="window.nfBatchAplicar('selecionados')">VINCULAR MARCADOS</button>
-            <button type="button" class="btn-outline" onclick="window.nfBatchAplicar('todos')">VINCULAR TODOS A ESTA O.S.</button>
-            <button type="button" class="btn-outline" onclick="window.nfBatchEstoqueSelecionados()">MANTER MARCADOS EM ESTOQUE</button>
-          </div>
-        </div>
-        <div style="font-family:var(--fm);font-size:.62rem;color:var(--muted);line-height:1.4;">Ao vincular a O.S./placa, a entrada fiscal registra a compra, cria vinculo interno e baixa automaticamente o saldo disponivel do estoque. A peca aparece na aba secreta Pecas Reais somente com *177.</div>`;
-      cont.parentElement?.insertBefore(tools, cont);
-    }
-    const sel = byId('nfBatchOSSelect');
-    if (sel) {
-      const old = sel.value;
-      sel.innerHTML = osOptionsHTML(old, byId('nfBatchOSBusca')?.value || '');
-      if (old && Array.from(sel.options).some(opt => opt.value === old)) sel.value = old;
-    }
+    byId('nfBatchVinculoTools')?.remove();
     cont.querySelectorAll('.nf-real-row').forEach(addNFRowCheckbox);
   }
   W.nfBatchFiltrarOS = function () {
