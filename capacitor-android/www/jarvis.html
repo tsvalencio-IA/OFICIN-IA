@@ -785,6 +785,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
           <div class="j-card-body" style="padding:0;">
             <table class="j-table">
               <thead><tr><th>Nome</th><th>WhatsApp</th><th>Veículos</th><th>Ações</th></tr></thead>
+              <tbody id="tbClientesBusca"><tr><td colspan="4" style="padding:12px;border-bottom:1px solid var(--border);"><input class="j-input" id="buscaClientesCadastro" placeholder="Pesquisar cliente por nome, documento, WhatsApp, login, PIN, placa ou veículo..." oninput="window.renderClientes&&window.renderClientes()"></td></tr></tbody>
               <tbody id="tbClientes"></tbody>
             </table>
           </div>
@@ -797,6 +798,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
           <div class="j-card-body" style="padding:0;">
             <table class="j-table">
               <thead><tr><th>Placa</th><th>Tipo</th><th>Modelo</th><th>Dono</th><th>KM</th><th>Ações</th></tr></thead>
+              <tbody id="tbVeiculosBusca"><tr><td colspan="6" style="padding:12px;border-bottom:1px solid var(--border);"><input class="j-input" id="buscaVeiculosCadastro" placeholder="Pesquisar veículo por placa, modelo, marca, dono, prefixo, chassi ou KM..." oninput="window.renderVeiculos&&window.renderVeiculos()"></td></tr></tbody>
               <tbody id="tbVeiculos"></tbody>
             </table>
           </div>
@@ -1500,6 +1502,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
   </div>
 
   <div class="modal-foot">
+    <button class="btn-ghost" id="btnVisualizarPDFOS" style="display:none;" onclick="window.visualizarOrcamentoOS&&window.visualizarOrcamentoOS()">👁 VISUALIZAR ORÇAMENTO</button>
     <button class="btn-ghost" id="btnGerarPDFOS" style="display:none;" onclick="window.gerarPDFOS()">📄 EXPORTAR LAUDO PDF</button>
     <button class="btn-ghost" id="btnExportarPMSP" style="display:none;background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.4);color:#A78BFA;" onclick="window.exportarOrcamentoPMSP()">🛡 EXPORTAR ORÇAMENTO PMSP (XLSX)</button>
     <button class="btn-ghost" id="btnExportarPMSPItens" style="display:none;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.36);color:#7DD3FC;" onclick="window.exportarOrcamentoPMSPItens()">📋 EXPORTAR ITENS AGRUPADOS (XLSX)</button>
@@ -2871,9 +2874,32 @@ window.salvarCliente = async function() {
     window.toast('✕ ERRO AO SALVAR: ' + e.message, 'err');
   }
 };
+function normalizarBuscaCadastroJV(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
 window.renderClientes = function() {
   if(!$('tbClientes')) return;
-  $('tbClientes').innerHTML = J.clientes.map(c=>{
+  const termoClientes = normalizarBuscaCadastroJV($('buscaClientesCadastro')?.value || '');
+  const clientesFiltrados = (J.clientes || []).filter(c => {
+    if (!termoClientes) return true;
+    const docClienteBusca = String(c.doc || c.cpf || c.cnpj || '').replace(/\D+/g,'');
+    const nomeClienteBusca = String(c.nome || c.razaoSocial || '').trim().toLowerCase();
+    const veiculosClienteBusca = (J.veiculos || []).filter(v => {
+      const ids = [v.clienteId, v.donoId, v.ownerId, v.cliente, v.clienteRef].filter(Boolean).map(String);
+      if (ids.includes(String(c.id))) return true;
+      const docVeic = String(v.clienteDoc || v.cpf || v.cnpj || '').replace(/\D+/g,'');
+      if (docClienteBusca && docVeic && docClienteBusca === docVeic) return true;
+      const nomeVeic = String(v.clienteNome || v.dono || v.proprietario || '').trim().toLowerCase();
+      return !!nomeClienteBusca && !!nomeVeic && nomeVeic === nomeClienteBusca;
+    });
+    const textoBusca = [
+      c.nome, c.razaoSocial, c.nomeFantasia, c.doc, c.cpf, c.cnpj, c.wpp, c.telefone, c.celular,
+      c.email, c.login, c.pin, c.tipoCliente, c.govUnidade, c.govFiscal,
+      veiculosClienteBusca.map(v => [v.placa, v.modelo, v.marca, v.prefixo, v.frota, v.chassis, v.chassi, v.patrimonio, v.km].filter(Boolean).join(' ')).join(' ')
+    ].filter(Boolean).join(' ');
+    return normalizarBuscaCadastroJV(textoBusca).includes(termoClientes);
+  });
+  $('tbClientes').innerHTML = clientesFiltrados.map(c=>{
     const docCliente = String(c.doc || c.cpf || c.cnpj || '').replace(/\D+/g,'');
     const nomeCliente = String(c.nome || c.razaoSocial || '').trim().toLowerCase();
     const veicsCliente = J.veiculos.filter(v=>{
@@ -3177,7 +3203,17 @@ window.salvarVeiculo = async function() {
 window.renderVeiculos = function() {
   if(!$('tbVeiculos')) return;
   const tipos = {carro:'🚗',moto:'🏍️',bicicleta:'🚲'};
-  $('tbVeiculos').innerHTML = J.veiculos.map(v=>{
+  const termoVeiculos = normalizarBuscaCadastroJV($('buscaVeiculosCadastro')?.value || '');
+  const veiculosFiltrados = (J.veiculos || []).filter(v => {
+    if (!termoVeiculos) return true;
+    const c = J.clientes.find(x => x.id === v.clienteId) || {};
+    const textoBusca = [
+      v.placa, v.tipo, v.modelo, v.marca, v.ano, v.cor, v.km, v.prefixo, v.frota, v.chassis, v.chassi,
+      v.patrimonio, v.patrimonioNumero, v.obs, c.nome, c.razaoSocial, c.nomeFantasia, c.doc, c.cpf, c.cnpj, c.wpp, c.login
+    ].filter(Boolean).join(' ');
+    return normalizarBuscaCadastroJV(textoBusca).includes(termoVeiculos);
+  });
+  $('tbVeiculos').innerHTML = veiculosFiltrados.map(v=>{
     const c=J.clientes.find(x=>x.id===v.clienteId);
     return `<tr><td><span class="placa-badge">${v.placa||'-'}</span></td><td>${tipos[v.tipo]||'🚗'}</td><td>${v.modelo||'-'}</td><td>${c?.nome||'-'}</td><td style="font-family:var(--fm);">${v.km||'-'}</td><td><button class="btn-ghost" onclick="window.prepVeiculo('edit','${v.id}');abrirModal('modalVeiculo')">✏</button><button class="btn-danger" style="margin-left:4px" onclick="window.excluirVeiculoDef('${v.id}')">🗑</button></td></tr>`;
   }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px;">Nenhum veículo</td></tr>';

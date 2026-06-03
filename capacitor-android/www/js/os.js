@@ -1572,6 +1572,7 @@ window.prepOS = function(mode, id = null) {
   if ($('osIdBadge')) $('osIdBadge').innerText = 'NOVA O.S.';
   window.atualizarVisibilidadeDescontosOS?.();
   atualizarResumoDescontosOS({ descMO: 0, descPeca: 0, brutoServicos: 0, liquidoServicos: 0, brutoPecas: 0, liquidoPecas: 0 });
+  if ($('btnVisualizarPDFOS')) $('btnVisualizarPDFOS').style.display = 'none';
   if ($('btnGerarPDFOS')) $('btnGerarPDFOS').style.display = 'none'; 
   if ($('btnExcluirOS')) $('btnExcluirOS').style.display = 'none';   // só aparece editando OS existente
   if ($('areaPgtoOS')) $('areaPgtoOS').style.display = 'none'; 
@@ -1742,6 +1743,7 @@ window.prepOS = function(mode, id = null) {
     const _elBuscaRes = document.getElementById('histBuscaResultado');
     if (_elBuscaRes) _elBuscaRes.innerHTML = '';
 
+    if ($('btnVisualizarPDFOS')) $('btnVisualizarPDFOS').style.display = 'block';
     if ($('btnGerarPDFOS')) $('btnGerarPDFOS').style.display = 'block';
 
     // Botão de exclusão só aparece se for admin/gestor (e estiver editando OS existente)
@@ -3722,7 +3724,8 @@ window.renderTimelineOS = function() {
   $('osTimeline').innerHTML = [...tl].reverse().map(e => `<div class="tl-item"><div class="tl-date">${dtHrBr(e.dt)}</div><div class="tl-user">${e.user}</div><div class="tl-action">${e.acao}</div></div>`).join('');
 };
 
-window.gerarPDFOS = async function() {
+window.gerarPDFOS = async function(opcoes = {}) {
+  const visualizarPDF = opcoes === 'visualizar' || opcoes?.visualizar === true;
   if (typeof window.jspdf === 'undefined') { window.toast('jsPDF nao carregado', 'err'); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF('p', 'mm', 'a4');
@@ -4212,8 +4215,25 @@ window.gerarPDFOS = async function() {
 
   const nomeArquivoPdf = `Laudo_${veiculoPdf.placa || 'OS'}_${Date.now()}.pdf`;
   const pdfBlob = doc.output('blob');
+  if (visualizarPDF) {
+    const urlPdf = URL.createObjectURL(pdfBlob);
+    const janelaPdf = window.open(urlPdf, '_blank');
+    if (!janelaPdf) {
+      URL.revokeObjectURL(urlPdf);
+      window.toast?.('Navegador bloqueou a visualização; baixando PDF.', 'warn');
+      await salvarBlobArquivoOS(pdfBlob, nomeArquivoPdf, 'application/pdf');
+      return { blob: pdfBlob, fileName: nomeArquivoPdf, fallbackDownload: true };
+    }
+    setTimeout(() => URL.revokeObjectURL(urlPdf), 300000);
+    window.toast('ORÇAMENTO ABERTO PARA VISUALIZAÇÃO', 'ok');
+    return { blob: pdfBlob, fileName: nomeArquivoPdf, url: urlPdf };
+  }
   await salvarBlobArquivoOS(pdfBlob, nomeArquivoPdf, 'application/pdf');
   window.toast('PDF GERADO', 'ok');
+};
+
+window.visualizarOrcamentoOS = function() {
+  return window.gerarPDFOS({ visualizar: true });
 };
 
 /* Powered by thIAguinho Soluções Digitais */
