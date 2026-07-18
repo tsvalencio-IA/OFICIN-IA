@@ -22,8 +22,8 @@
   [
     'salvarOS','salvarOSContinuar','renderFinanceiro','renderEstoque','buscarHistoricoOS',
     'iaPerguntar','thiaResponderLocal','thiaNormalizeBrainJson','thiaCarregarCerebroGlobal',
-    'abrirCotacaoFornecedoresOSLote','gerarEnvioCotacaoOS','thiaValorIAStatus',
-    'thiaValorIASincronizarOS','exportarOrcamentoPMSP'
+    'thiaCatalogosBuscar','thiaCatalogosPrepararPergunta',
+    'abrirCotacaoFornecedoresOSLote','gerarEnvioCotacaoOS','exportarOrcamentoPMSP'
   ].forEach(n => fn(n) ? ok('Funcao ' + n) : warn('Funcao ' + n, 'Ausente nesta versao/tela'));
 
   [
@@ -39,13 +39,6 @@
     r ? ok('IA local responde Jarvis', String(r).replace(/<[^>]+>/g, ' ').slice(0, 180)) : fail('IA local responde Jarvis', 'Sem resposta');
   } catch (e) {
     fail('IA local responde Jarvis', e.message || e);
-  }
-
-  try {
-    const st = fn('thiaValorIAStatus') ? window.thiaValorIAStatus() : null;
-    st ? ok('Status ValorIA acessivel', JSON.stringify(st)) : warn('Status ValorIA acessivel', 'Ponte nao carregada');
-  } catch (e) {
-    warn('Status ValorIA acessivel', e.message || e);
   }
 
   const leaks = ['os','clientes','veiculos','estoque','financeiro','fornecedores'].flatMap(col =>

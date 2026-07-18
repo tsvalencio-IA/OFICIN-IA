@@ -22,7 +22,7 @@ if ('serviceWorker' in navigator) {
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="js/config.js"></script>
-<script src="js/os-utils.js"></script>
+<script src="js/os-utils.js?v=15.15.0"></script>
 <script src="js/links-publicos.js"></script>
 <script src="js/tenant-modules.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=JetBrains+Mono:wght@400;700&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -466,6 +466,9 @@ body.equipe-page .overlay.open{display:flex!important;}
           <span onclick="iaChip('Como testar bobina de ignição com multímetro?')" style="padding:6px 12px;background:rgba(167,139,250,0.12);border:1px solid rgba(167,139,250,0.2);border-radius:20px;font-family:var(--fm);font-size:0.7rem;color:#A78BFA;cursor:pointer;">Dica de Falha (DTC)</span>
           <span onclick="iaChip('Qual a ordem de aperto do cabeçote EA111?')" style="padding:6px 12px;background:rgba(167,139,250,0.12);border:1px solid rgba(167,139,250,0.2);border-radius:20px;font-family:var(--fm);font-size:0.7rem;color:#A78BFA;cursor:pointer;">Torque EA111</span>
         </div>
+        <div id="thiaIaLocalStatus" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid rgba(148,163,184,.18);background:rgba(15,23,42,.45);font-size:.75rem;">
+          <span style="padding:5px 9px;border-radius:999px;border:1px solid rgba(0,255,136,.35);color:var(--success,#00ff88);">IA INTERNA LOCAL • pátio + catálogos técnicos</span>
+        </div>
         <div id="iaMsgs" style="flex:1;overflow-y:auto;padding:20px;background:var(--surf-0);display:flex;flex-direction:column;gap:12px;">
           <div style="text-align:center;color:var(--text-muted);font-size:0.85rem;padding:20px;">Peça ajuda para diagnósticos, torques ou manuais.<br><small>(O Assistente foca apenas nos veículos atualmente no pátio)</small></div>
         </div>
@@ -558,6 +561,14 @@ body.equipe-page .overlay.open{display:flex!important;}
       </div>
       <div class="form-group"><label class="j-label">KM</label>
         <input type="number" class="j-input" id="osKm" placeholder="45000">
+      </div>
+    </div>
+    <div class="form-row c2">
+      <div class="form-group"><label class="j-label">Número do Prisma</label>
+        <input type="number" class="j-input" id="osPrisma" min="1" step="1" inputmode="numeric" placeholder="Ex: 1, 2, 3..." title="Número físico do prisma usado para localizar o veículo no pátio. Ao entregar, o prisma volta a ficar disponível.">
+      </div>
+      <div class="form-group"><label class="j-label">Controle do Prisma</label>
+        <input type="text" class="j-input" id="osPrismaInfo" readonly value="Ao entregar, o prisma é liberado." style="font-family:var(--fm);font-size:.72rem;color:var(--muted);">
       </div>
     </div>
     <div class="form-group"><label class="j-label">Defeito / Problema Relatado</label>
@@ -753,7 +764,7 @@ try { J.oficina = JSON.parse(sessionStorage.getItem('j_oficina') || 'null') || n
  if(!J.tid || String(J.role||'').toLowerCase()==='admin') window.location.replace('index.html');
 
 // FIREBASE
-const FB_BASE={apiKey:"AIzaSyBqIuCsHHuy_f-mBWV4JBkbyOorXpqQvqg",authDomain:"hub-thiaguinho.firebaseapp.com",projectId:"hub-thiaguinho",storageBucket:"hub-thiaguinho.firebasestorage.app",messagingSenderId:"453508098543",appId:"1:453508098543:web:305f4d48edd9be40bd6e1a"};
+const FB_BASE=window.JARVIS_FB_CONFIG;
 function _firebaseEquipeConfig(){
   try{
     const cfg=JSON.parse(sessionStorage.getItem('j_firebase_config')||'null');
@@ -775,6 +786,36 @@ try { centralDbEquipe = window.initCentralFirebase ? window.initCentralFirebase(
 
 // STATE
 let dbOS=[], dbClientes=[], dbVeiculos=[], dbEstoque=[], dbMsgs=[];
+let _chatEquipeListenerIniciado=false;
+let _estoqueEquipeListenerIniciado=false;
+let _pararFinanceiroEquipe=null;
+
+function iniciarChatEquipeDados(){
+  if(_chatEquipeListenerIniciado) return;
+  _chatEquipeListenerIniciado=true;
+  db.collection('chat_equipe').where('tenantId','==',J.tid).onSnapshot(snap=>{
+    dbMsgs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));
+    renderChat();
+    const nLidas=dbMsgs.filter(m=>m.sender==='admin'&&!m.lidaEquipe&&m.para===J.fid).length;
+    const badge=$('chatTabBadge');
+    if(badge && nLidas>0){badge.classList.remove('d-none');badge.innerText=nLidas;}
+    else if(badge) badge.classList.add('d-none');
+  },err=>{
+    _chatEquipeListenerIniciado=false;
+    console.warn('[Equipe chat]',err?.message||err);
+  });
+}
+
+function iniciarEstoqueEquipeDados(){
+  if(_estoqueEquipeListenerIniciado) return;
+  _estoqueEquipeListenerIniciado=true;
+  db.collection('estoqueItems').where('tenantId','==',J.tid).onSnapshot(snap=>{
+    dbEstoque=snap.docs.map(d=>({id:d.id,...d.data()}));
+  },err=>{
+    _estoqueEquipeListenerIniciado=false;
+    console.warn('[Equipe estoque]',err?.message||err);
+  });
+}
 
 function roleEquipeAtual(){
   return String(J.role || '').toLowerCase();
@@ -863,6 +904,8 @@ function irTab(id,el){
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   $(id)?.classList.add('active'); el?.classList.add('active');
+  if(id==='t-chat') iniciarChatEquipeDados();
+  if(id==='t-kanban') iniciarEstoqueEquipeDados();
   repararLayoutEquipe();
 }
 
@@ -1128,6 +1171,13 @@ async function _avisarAdminPronto(os) {
       deNome: J.nome || 'Equipe',
       para: 'admin',
       sender: 'equipe',
+      senderId: J.fid || 'equipe',
+      senderName: J.nome || 'Equipe',
+      senderRole: J.cargo || J.role || 'equipe',
+      autorId: J.fid || 'equipe',
+      autorNome: J.nome || 'Equipe',
+      autorTipo: 'equipe',
+      autorCargo: J.cargo || J.role || 'equipe',
       msg: `OS #${String(os.id || '').slice(-6).toUpperCase()} marcada como PRONTO pela equipe. Cliente: ${cliente?.nome || 'não identificado'} | Veículo: ${placa}${modelo}. Conferir e enviar aviso ao cliente pelo Jarvis.`,
       lidaAdmin: false,
       lidaEquipe: true,
@@ -1557,18 +1607,10 @@ document.addEventListener('DOMContentLoaded',()=>{
     dbVeiculos=snap.docs.map(d=>({id:d.id,...d.data()}));
     popularSelects();
   });
-  db.collection('estoqueItems').where('tenantId','==',J.tid).onSnapshot(snap=>{
-    dbEstoque=snap.docs.map(d=>({id:d.id,...d.data()}));
-  });
-  
-  db.collection('chat_equipe').where('tenantId','==',J.tid).onSnapshot(snap=>{
-    dbMsgs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));
-    renderChat();
-    const nLidas=dbMsgs.filter(m=>m.sender==='admin'&&!m.lidaEquipe&&m.para===J.fid).length;
-    const badge=$('chatTabBadge');
-    if(badge && nLidas>0){badge.classList.remove('d-none');badge.innerText=nLidas;}
-    else if(badge) badge.classList.add('d-none');
-  });
+  // Estoque é necessário apenas ao manipular peças da O.S.; aguarda o
+  // primeiro intervalo ocioso para não competir com o carregamento do pátio.
+  if('requestIdleCallback' in window) requestIdleCallback(iniciarEstoqueEquipeDados,{timeout:1400});
+  else setTimeout(iniciarEstoqueEquipeDados,450);
 
 // VERIFICA PERMISSÃO DE COMISSÃO DO GESTOR E MONTA EXTRATO
   db.collection('oficinas').doc(J.tid).onSnapshot(doc => {
@@ -1580,9 +1622,9 @@ document.addEventListener('DOMContentLoaded',()=>{
       
       if (cardComissao) cardComissao.style.display = podeVer ? 'block' : 'none';
 
-      if (podeVer) {
+      if (podeVer && !_pararFinanceiroEquipe) {
         // Trazemos TODO o histórico financeiro amarrado a este usuário
-        db.collection('financeiro')
+        _pararFinanceiroEquipe = db.collection('financeiro')
           .where('tenantId', '==', J.tid)
           .where('mecId', '==', J.fid)
           .onSnapshot(finSnap => {
@@ -1642,37 +1684,51 @@ document.addEventListener('DOMContentLoaded',()=>{
                 tbExtrato.innerHTML = extratoHTML || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);font-size:0.8rem;">Nenhum histórico financeiro encontrado.</td></tr>';
             }
           });
+      } else if (!podeVer && _pararFinanceiroEquipe) {
+        try { _pararFinanceiroEquipe(); } catch(e) {}
+        _pararFinanceiroEquipe = null;
       }
     }
   });
-  if (centralDbEquipe) {
-    const refs = Array.from(new Set([
-      J.tid,
-      J.oficina?.id,
-      J.oficina?.slug,
-      J.oficina?.publicSlug,
-      J.oficina?.oficinaSlug,
-      J.oficina?.tenantSlug
-    ].map(v => String(v || '').trim()).filter(Boolean)));
-    refs.forEach(ref => {
-      centralDbEquipe.collection('oficinas').doc(ref).onSnapshot(doc => {
-        if (doc.exists) aplicarModulosEquipe(doc.data());
-      }, err => console.warn('[Equipe] modulos central doc indisponiveis', err.message));
-    });
-    ['slug','publicSlug','oficinaSlug','tenantSlug'].forEach(campo => {
-      refs.forEach(ref => {
-        centralDbEquipe.collection('oficinas').where(campo, '==', ref).limit(1).onSnapshot(snap => {
-          if (!snap.empty) aplicarModulosEquipe(snap.docs[0].data());
-        }, err => console.warn('[Equipe] modulos central slug indisponiveis', err.message));
-      });
-    });
-  }
+  if (centralDbEquipe) (async()=>{
+    try{
+      const refs = Array.from(new Set([
+        J.tid,
+        J.oficina?.id,
+        J.oficina?.slug,
+        J.oficina?.publicSlug,
+        J.oficina?.oficinaSlug,
+        J.oficina?.tenantSlug
+      ].map(v => String(v || '').trim()).filter(Boolean)));
+      for(const ref of refs){
+        const doc=await centralDbEquipe.collection('oficinas').doc(ref).get();
+        if(doc.exists){aplicarModulosEquipe(doc.data());return;}
+      }
+      for(const campo of ['slug','publicSlug','oficinaSlug','tenantSlug']){
+        for(const ref of refs){
+          const snap=await centralDbEquipe.collection('oficinas').where(campo,'==',ref).limit(1).get();
+          if(!snap.empty){aplicarModulosEquipe(snap.docs[0].data());return;}
+        }
+      }
+    }catch(err){console.warn('[Equipe] módulos centrais indisponíveis',err?.message||err);}
+  })();
 });
 // ============================================================
 // KPIs
 // ============================================================
+function osAtribuidaAoUsuarioEquipe(o) {
+  const fid = String(J.fid || '').trim();
+  if (!fid) return false;
+  if (String(o?.mecId || '') === fid) return true;
+  if ((Array.isArray(o?.mecIds) ? o.mecIds : []).some(id => String(id || '') === fid)) return true;
+  if ((Array.isArray(o?.mecanicos) ? o.mecanicos : []).some(m => String(m?.id || m?.mecId || '') === fid)) return true;
+  return (Array.isArray(o?.servicos) ? o.servicos : []).some(s =>
+    String(s?.mecId || s?.mecanicoId || s?.responsavelId || '') === fid
+  );
+}
+
 function renderKPIs(){
-  const minhas = dbOS.filter(o => !o.mecId || o.mecId === J.fid);
+  const minhas = dbOS.filter(o => (!o.mecId && !(o.mecIds || []).length) || osAtribuidaAoUsuarioEquipe(o));
   const ativas = minhas.filter(o => !['Entregue','Cancelado','entregue','cancelado'].includes(o.status));
   if($('kMeusOS')) $('kMeusOS').innerText = ativas.length;
   if($('kEmExec')) $('kEmExec').innerText = minhas.filter(o => o.status === 'Andamento' || o.status === 'EmServico').length;
@@ -1685,7 +1741,7 @@ function renderKPIs(){
 // Só gestor/gerente/admin pode marcar "Entregue" (exige pagamento no caixa).
 // ============================================================
 function renderKanban(){
-  const busca=($v('searchOS')||'').toLowerCase();
+  const busca=($v('searchOS')||'').trim().toLowerCase();
   const statuses=['Aguardando','Orcamento','Aprovado','Andamento','Pronto','Entregue'];
   const cols={},cnts={};
   statuses.forEach(s=>{cols[s]=[];cnts[s]=0;});
@@ -1704,7 +1760,7 @@ function renderKanban(){
     'Aguardando':'Aguardando'
   };
 
-  const minhasOS = dbOS.filter(o => {
+  const minhasOS = (Array.isArray(dbOS) ? dbOS : []).filter(o => {
     const st = (o.status||'').toLowerCase();
     if (st === 'cancelado') return false;
     
@@ -1717,9 +1773,9 @@ function renderKanban(){
   });
 
   minhasOS.forEach(o=>{
-    const v = dbVeiculos.find(x=>x.id===o.veiculoId) || {placa:o.placa, tipo:o.tipoVeiculo||'carro'};
-    const c = dbClientes.find(x=>x.id===o.clienteId) || {nome:o.cliente||'—'};
-    if(busca && !(v?.placa||'').toLowerCase().includes(busca) && !(c?.nome||'').toLowerCase().includes(busca)) return;
+    const v = (Array.isArray(dbVeiculos) ? dbVeiculos : []).find(x=>x.id===o.veiculoId) || {placa:o.placa, tipo:o.tipoVeiculo||'carro'};
+    const c = (Array.isArray(dbClientes) ? dbClientes : []).find(x=>x.id===o.clienteId) || {nome:o.cliente||'—'};
+    if(busca && !(v?.placa||'').toLowerCase().includes(busca) && !(c?.nome||'').toLowerCase().includes(busca) && !String(o.prisma||o.numeroPrisma||'').toLowerCase().includes(busca)) return;
     const st = stMap[o.status] || 'Aguardando';
     if(cols[st]){ cols[st].push({os:o,v,c}); cnts[st]++; }
   });
@@ -1733,6 +1789,8 @@ function renderKanban(){
     kEl.innerHTML=cols[s].sort((a,b)=>new Date(b.os.updatedAt||0)-new Date(a.os.updatedAt||0)).map(({os,v,c})=>{
       const qm = STATUS_NEXT[s];
       const qmBtn = qm ? `<button class="k-move-btn" onclick="quickMoveOS('${os.id}','${qm.next}',event)">${qm.label}</button>` : '';
+      const prismaAtual = String(os.prisma || os.numeroPrisma || '').trim();
+      const prismaBadge = prismaAtual && s !== 'Entregue' ? `<div style="display:inline-flex;align-items:center;gap:4px;margin:4px 0 2px;font-family:var(--fm);font-size:.56rem;color:#111;background:var(--warn);border-radius:999px;padding:2px 7px;font-weight:900;letter-spacing:.8px;">PRISMA ${prismaAtual}</div>` : '';
       const valores = `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;margin:8px 0;">
         <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);padding:5px;border-radius:3px;"><small style="display:block;font-family:var(--fm);font-size:.47rem;color:var(--muted);">ORÇ.</small><b style="font-family:var(--fm);font-size:.58rem;color:var(--warn);">SEM VALOR</b></div>
         <div style="background:rgba(0,212,255,.05);border:1px solid rgba(0,212,255,.12);padding:5px;border-radius:3px;"><small style="display:block;font-family:var(--fm);font-size:.47rem;color:var(--muted);">APROV.</small><b style="font-family:var(--fm);font-size:.58rem;color:var(--cyan);">STATUS</b></div>
@@ -1741,6 +1799,7 @@ function renderKanban(){
       return `
       <div class="k-card" style="border-left-color:${cor}" onclick="prepOS('edit','${os.id}');abrirModal('modalOS')">
         <div class="k-placa" style="color:${cor}">${v?.placa||os.placa||'S/PLACA'}</div>
+        ${prismaBadge}
         <div class="k-cli">${c?.nome||os.cliente||'—'}</div>
         <div class="k-desc">${os.desc||os.relato||'Sem descrição'}</div>
         ${valores}
@@ -1773,7 +1832,8 @@ function filtrarVeics(){
 }
 
 function prepOS(mode,id=null){
-  ['osId','osDesc','osDiag','osKm'].forEach(f=>{if($(f))$(f).value='';});
+  window._equipeOSAtual = null;
+  ['osId','osDesc','osDiag','osKm','osPrisma'].forEach(f=>{if($(f))$(f).value='';});
   $('osMO').value='0'; $('osTipo').value='carro'; $('osStatus').value='Aguardando';
   $('osData').value=new Date().toISOString().split('T')[0];
   $('containerPecas').innerHTML=''; $('containerServicos').innerHTML='';
@@ -1801,6 +1861,7 @@ function prepOS(mode,id=null){
   if (av) av.style.display = 'none';
   if(mode==='edit'&&id){
     const os=dbOS.find(x=>x.id===id); if(!os) return;
+    window._equipeOSAtual = os;
     $('osId').value=os.id; $('osIdBadge').innerText='OS#'+os.id.slice(-5).toUpperCase();
     $('osTipo').value=os.tipoVeiculo||'carro';
     $('osStatus').value=os.status||'Aguardando';
@@ -1809,7 +1870,7 @@ function prepOS(mode,id=null){
       $('osVeiculo').value=os.veiculoId||'';
       atualizarHeaderOS(os.veiculoId||'', os.clienteId||'');
     },80);
-    $('osData').value=os.data||''; $('osKm').value=os.km||'';
+    $('osData').value=os.data||''; $('osKm').value=os.km||''; if($('osPrisma')) $('osPrisma').value=os.prisma||os.numeroPrisma||'';
     $('osDesc').value=os.desc||''; $('osDiag').value=os.diagnostico||'';
     $('osMO').value=os.maoObra||0;
     $('chkObs').value=os.chkObs||'';
@@ -1866,12 +1927,19 @@ async function salvarExecucaoAprovadosEquipe(osId) {
   rows.forEach(row => {
     const key = row.dataset.key;
     if (!key) return;
+    const mecIdExecucao = row.querySelector('.exec-mec')?.value || row.dataset.mecId || J.fid || '';
+    const mecExecucao = mecanicosEquipeDaOS(osAtual).find(m => String(m.id) === String(mecIdExecucao));
     execucaoItens[key] = {
       key,
       tipo: row.dataset.tipo || '',
       status: row.querySelector('.exec-status')?.value || 'pendente',
       obs: row.querySelector('.exec-obs')?.value || '',
+      mecId: mecIdExecucao,
+      mecNome: mecExecucao?.nome || '',
+      responsavelId: mecIdExecucao,
+      responsavelNome: mecExecucao?.nome || '',
       atualizadoEm: new Date().toISOString(),
+      atualizadoPorId: J.fid || '',
       atualizadoPor: J.nome || 'Equipe',
       atualizadoPorTipo: J.role || 'equipe'
     };
@@ -1919,8 +1987,14 @@ function aplicarMarcadoresAprovacaoEquipe(os) {
       <div style="display:grid;gap:7px;">
         ${aprovados.map(it => {
           const e = exec[it.key] || {};
-          return `<div class="execucao-aprovado-row" data-key="${escExecEquipe(it.key)}" data-tipo="${escExecEquipe(it.tipo)}" style="display:grid;grid-template-columns:minmax(220px,1fr) 190px minmax(200px,1fr);gap:7px;align-items:center;background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.10);border-radius:3px;padding:8px;">
+          const mecIdItem = e.mecId || e.responsavelId || it.mecId || it.responsavelId || os.mecId || '';
+          const podeAlterarMec = ['gerente','gestor','admin','superadmin'].includes(String(J.role || '').toLowerCase());
+          const seletorMec = String(it.tipo || '').toLowerCase().includes('serv')
+            ? `<select class="j-select exec-mec" ${podeAlterarMec ? '' : 'disabled'} style="font-size:.70rem;">${opcoesMecanicoServicoEquipe(mecIdItem, os)}</select>`
+            : '<span></span>';
+          return `<div class="execucao-aprovado-row" data-key="${escExecEquipe(it.key)}" data-tipo="${escExecEquipe(it.tipo)}" data-mec-id="${escExecEquipe(mecIdItem)}" style="display:grid;grid-template-columns:minmax(220px,1fr) minmax(150px,190px) 190px minmax(200px,1fr);gap:7px;align-items:center;background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.10);border-radius:3px;padding:8px;">
             <div style="font-size:.75rem;color:var(--text);"><b>${escExecEquipe(it.labelTipo || it.tipo)}</b> ${it.codigo ? '[' + escExecEquipe(it.codigo) + '] ' : ''}${escExecEquipe(it.desc || '-')}${it.tempo ? `<br><small style="color:var(--muted);">TMO ${String(it.tempo).replace('.', ',')}h</small>` : ''}</div>
+            ${seletorMec}
             <select class="j-select exec-status" style="font-size:.72rem;">${statusOptionsExecEquipe(it.tipo, e.status || 'pendente')}</select>
             <input class="j-input exec-obs" value="${escExecEquipe(e.obs || '')}" placeholder="Observação interna: peça não encontrada, aguardando, executado...">
           </div>`;
@@ -1942,12 +2016,40 @@ function aplicarMarcadoresAprovacaoEquipe(os) {
   if (alvo) alvo.insertAdjacentElement('beforebegin', box);
 }
 
+function mecanicosEquipeDaOS(os) {
+  const mapa = new Map();
+  const adicionar = (id, nome, cargo) => {
+    const chave = String(id || '').trim();
+    if (!chave) return;
+    if (!mapa.has(chave)) mapa.set(chave, { id: chave, nome: nome || chave, cargo: cargo || '' });
+  };
+  (Array.isArray(os?.mecanicos) ? os.mecanicos : []).forEach(m => adicionar(m?.id || m?.mecId, m?.nome || m?.mecNome, m?.cargo));
+  (Array.isArray(os?.mecIds) ? os.mecIds : []).forEach(id => adicionar(id, id, ''));
+  adicionar(os?.mecId, os?.mecNome, '');
+  (Array.isArray(os?.servicos) ? os.servicos : []).forEach(s => adicionar(
+    s?.mecId || s?.mecanicoId || s?.responsavelId,
+    s?.mecNome || s?.mecanicoNome || s?.responsavelNome,
+    ''
+  ));
+  adicionar(J.fid, J.nome, J.role);
+  return Array.from(mapa.values());
+}
+
+function opcoesMecanicoServicoEquipe(selectedId, os) {
+  const lista = mecanicosEquipeDaOS(os || window._equipeOSAtual || {});
+  return ['<option value="">Responsável não definido</option>']
+    .concat(lista.map(m => `<option value="${escExecEquipe(m.id)}" ${String(m.id) === String(selectedId || '') ? 'selected' : ''}>${escExecEquipe(m.nome || m.id)}</option>`))
+    .join('');
+}
+
 // ADICIONAR SERVIÇOS (DINÂMICO POR CARGO)
 function adicionarServico(s=null){
   const div=document.createElement('div');
   const podeVerPreco = ['gerente', 'vendedor', 'admin'].includes(J.role);
+  const podeAlterarResponsavel = ['gerente', 'gestor', 'admin', 'superadmin'].includes(String(J.role || '').toLowerCase());
+  const mecIdServico = s?.mecId || s?.mecanicoId || s?.responsavelId || window._equipeOSAtual?.mecId || J.fid || '';
   
-  div.style.cssText='display:flex;gap:7px;align-items:center;position:relative;';
+  div.style.cssText='display:grid;grid-template-columns:minmax(220px,1fr) minmax(150px,190px) auto auto;gap:7px;align-items:center;position:relative;';
   const uid = 'sv_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
   
   const inputValor = podeVerPreco 
@@ -1955,8 +2057,11 @@ function adicionarServico(s=null){
     : `<input type="hidden" class="serv-valor" value="${s?s.valor:0}">`;
 
   div.innerHTML=`
-    <input type="text" class="j-input serv-desc" id="${uid}" placeholder="Descreva o serviço..." value="${s?s.desc:''}" style="flex:1;padding-right:40px;">
-    <button type="button" class="btn-voice" style="position:absolute;right:${podeVerPreco ? '100px' : '38px'};top:50%;transform:translateY(-50%);" onclick="iniciarVoz('${uid}',this)" title="Falar serviço">🎙️</button>
+    <div style="position:relative;min-width:0;">
+      <input type="text" class="j-input serv-desc" id="${uid}" placeholder="Descreva o serviço..." value="${s?s.desc:''}" style="width:100%;padding-right:40px;">
+      <button type="button" class="btn-voice" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);" onclick="iniciarVoz('${uid}',this)" title="Falar serviço">🎙️</button>
+    </div>
+    <select class="j-select serv-mec" ${podeAlterarResponsavel ? '' : 'disabled'} title="Mecânico responsável pelo serviço">${opcoesMecanicoServicoEquipe(mecIdServico, window._equipeOSAtual)}</select>
     ${inputValor}
     <button type="button" onclick="this.parentElement.remove()" style="background:rgba(255,59,59,0.1);border:1px solid rgba(255,59,59,0.3);border-radius:2px;color:var(--danger);cursor:pointer;width:28px;height:34px;font-size:10px;flex-shrink:0;">✕</button>
   `;
@@ -2043,7 +2148,16 @@ async function salvarOS(){
   document.querySelectorAll('#containerServicos>div').forEach(r=>{
     const desc=r.querySelector('.serv-desc')?.value||'';
     const valor=parseBR(r.querySelector('.serv-valor')?.value||0);
-    if(desc) servicos.push({desc, valor});
+    const mecId = r.querySelector('.serv-mec')?.value || '';
+    const mec = mecanicosEquipeDaOS(window._equipeOSAtual || {}).find(m => String(m.id) === String(mecId));
+    if(desc) servicos.push({
+      desc,
+      valor,
+      mecId,
+      mecNome: mec?.nome || '',
+      responsavelId: mecId,
+      responsavelNome: mec?.nome || ''
+    });
   });
 
   // O Total é recalculado secretamente para não perder a integridade dos dados no Firebase
@@ -2052,6 +2166,8 @@ async function salvarOS(){
   servicos.forEach(s => t += s.valor);
 
   const id = $v('osId');
+  const osBaseEquipe = id ? (dbOS.find(x => x.id === id) || {}) : {};
+  const prismaInformadoOS = ($v('osPrisma') || '').trim();
   const funcUser = J.nome || 'Mecânico';
   let tl = [];
   let motivoTriagemEquipe = '';
@@ -2157,9 +2273,27 @@ async function salvarOS(){
   }
   // --- FIM: DEEP DIFF ---
   
+  const mecIdPrincipalEquipe = osBaseEquipe.mecId || J.fid;
+  const mecIdsEquipe = Array.from(new Set([
+    mecIdPrincipalEquipe,
+    ...(Array.isArray(osBaseEquipe.mecIds) ? osBaseEquipe.mecIds : []),
+    ...servicos.map(s => s.mecId)
+  ].map(v => String(v || '').trim()).filter(Boolean)));
+  const mecanicosEquipe = mecanicosEquipeDaOS({
+    ...osBaseEquipe,
+    mecId: mecIdPrincipalEquipe,
+    mecIds: mecIdsEquipe,
+    servicos
+  }).filter(m => mecIdsEquipe.includes(String(m.id)));
   const p={
     tenantId:J.tid,tipoVeiculo:$v('osTipo'),clienteId:$v('osCliente'),veiculoId:$v('osVeiculo'),
-    mecId:J.fid,mecNome:J.nome,data:$v('osData'),km:$v('osKm'),
+    mecId:mecIdPrincipalEquipe,
+    mecNome:osBaseEquipe.mecNome || mecanicosEquipe.find(m => String(m.id) === String(mecIdPrincipalEquipe))?.nome || J.nome,
+    mecIds:mecIdsEquipe,
+    mecanicos:mecanicosEquipe,
+    data:$v('osData'),km:$v('osKm'),
+    prisma: prismaInformadoOS,
+    numeroPrisma: prismaInformadoOS,
     desc:$v('osDesc'),diagnostico:$v('osDiag'),status:$v('osStatus'),
     maoObra:parseBR($v('osMO')||0),
     total: t,
@@ -2244,6 +2378,23 @@ async function salvarOS(){
     return;
   }
 
+  if (p.status === 'Entregue') {
+    const osAnteriorPrisma = id ? (dbOS.find(x => x.id === id) || {}) : {};
+    const prismaParaLiberar = String(prismaInformadoOS || osAnteriorPrisma.prisma || osAnteriorPrisma.numeroPrisma || '').trim();
+    if (prismaParaLiberar) {
+      p.prismaHistorico = osAnteriorPrisma.prismaHistorico || osAnteriorPrisma.numeroPrismaHistorico || prismaParaLiberar;
+      p.numeroPrismaHistorico = osAnteriorPrisma.numeroPrismaHistorico || osAnteriorPrisma.prismaHistorico || prismaParaLiberar;
+      p.prismaLiberado = true;
+      p.prismaLiberadoEm = new Date().toISOString();
+      p.prismaLiberadoPor = J.nome || 'Equipe';
+      p.prisma = '';
+      p.numeroPrisma = '';
+      const tlPrisma = Array.isArray(p.timeline) ? p.timeline.slice() : [];
+      tlPrisma.push({ dt: new Date().toISOString(), user: J.nome || 'Equipe', acao: `Prisma ${prismaParaLiberar} liberado automaticamente na entrega da O.S.` });
+      p.timeline = tlPrisma;
+    }
+  }
+
   if(id) await db.collection('ordens_servico').doc(id).update(p);
   else{p.createdAt=new Date().toISOString();await db.collection('ordens_servico').add(p);}
 
@@ -2304,15 +2455,28 @@ function renderTimeline(){
 // ============================================================
 // CHAT EQUIPE ↔ ADMIN
 // ============================================================
+function chatEquipeUidAtualEquipe(){
+  return String(J.fid || sessionStorage.getItem('j_fid') || J.uid || J.nome || 'equipe');
+}
+function chatEquipeMinhaMensagemEquipe(m){
+  const uid = chatEquipeUidAtualEquipe();
+  const ids = [m.senderId, m.autorId, m.de].map(v => String(v || '')).filter(Boolean);
+  return ids.includes(uid);
+}
+function chatEquipeNomeMensagemEquipe(m){
+  if (chatEquipeMinhaMensagemEquipe(m)) return J.nome || m.senderName || m.autorNome || 'Equipe';
+  return m.senderName || m.autorNome || m.deNome || (m.sender === 'admin' ? 'Admin' : 'Equipe');
+}
 function renderChat(){
   const msgs=$('chatMsgs');
   if(!msgs) return;
   if(!dbMsgs.length){msgs.innerHTML='<div style="text-align:center;color:var(--muted);font-family:var(--fm);font-size:0.72rem;padding:30px;">Sem mensagens ainda</div>';return;}
   msgs.innerHTML=dbMsgs.map(m=>{
-    if(m.sender==='admin'&&!m.lidaEquipe&&m.para===J.fid) db.collection('chat_equipe').doc(m.id).update({lidaEquipe:true}).catch(()=>{});
+    const minha = chatEquipeMinhaMensagemEquipe(m);
+    if(!minha && !m.lidaEquipe && (String(m.para || '') === String(J.fid || '') || String(m.para || '') === 'equipe')) db.collection('chat_equipe').doc(m.id).update({lidaEquipe:true}).catch(()=>{});
     const t=m.ts?new Date(m.ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
-    const side=m.sender==='equipe'?'admin':'cliente';
-    const nome=m.sender==='equipe'?J.nome:'Admin';
+    const side=minha?'admin':'cliente';
+    const nome=chatEquipeNomeMensagemEquipe(m);
     const conteudo = formatarMidiaChat(m.msg);
     return `<div class="chat-msg ${side}"><strong style="font-size:0.65rem;color:${side==='admin'?'var(--cyan)':'var(--muted2)'}">${_escapeHtml(nome)}</strong><br>${conteudo}<div class="ts">${t}</div></div>`;
   }).join('');
@@ -2320,8 +2484,19 @@ function renderChat(){
 }
 async function enviarMsg(){
   const msg=$v('chatInput'); if(!msg) return;
+  const uid = chatEquipeUidAtualEquipe();
   await db.collection('chat_equipe').add({
-    tenantId:J.tid,de:J.fid,para:'admin',sender:'equipe',
+    tenantId:J.tid,
+    de:uid,
+    para:'admin',
+    sender:'equipe',
+    senderId:uid,
+    senderName:J.nome || 'Equipe',
+    senderRole:J.cargo || J.role || 'equipe',
+    autorId:uid,
+    autorNome:J.nome || 'Equipe',
+    autorTipo:'equipe',
+    autorCargo:J.cargo || J.role || 'equipe',
     msg,lidaAdmin:false,lidaEquipe:true,ts:Date.now()
   });
   $('chatInput').value='';
@@ -2526,9 +2701,8 @@ function aplicarSugestaoIA() {
 <script src="js/final-1010-regras-os.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/hardening-comercial.js"></script>
-<script src="js/ia.js"></script>
+<script src="js/ia.js?v=15.15.0"></script>
+<script src="js/catalogos-ia.js?v=16.0.0"></script>
 <script src="js/uix-theme-fix.js"></script>
 </body>
 </html>
-
-

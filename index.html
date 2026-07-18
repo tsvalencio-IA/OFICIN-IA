@@ -217,6 +217,9 @@ document.getElementById('pwd').addEventListener('keydown', e => { if (e.key === 
 document.getElementById('usr').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('pwd').focus(); });
 
 function _dadosOficinaSessao(d) {
+  const integracoes = { ...(d.integracoes || {}) };
+  delete integracoes.iaDiagnosticoAutomotivo;
+  delete integracoes.diagnosticoAutomotivoIA;
   return {
     nomeFantasia: d.nomeFantasia || '',
     razaoSocial: d.razaoSocial || d.nomeFantasia || '',
@@ -246,13 +249,17 @@ function _dadosOficinaSessao(d) {
     assinatura: d.assinatura || null,
     guinchoConfig: d.guinchoConfig || null,
     firebaseConfig: d.firebaseConfig || null,
-    apiKeys: d.apiKeys || {},
+    apiKeys: {
+      cloudName: d.apiKeys?.cloudName || '',
+      cloudPreset: d.apiKeys?.cloudPreset || ''
+    },
     modulos: d.modulos || {},
     submodulos: d.submodulos || {},
     slug: d.slug || d.publicSlug || d.oficinaSlug || '',
     publicBaseUrl: d.publicBaseUrl || d.linksPublicos?.baseUrl || '',
     brain: d.brain || d.cerebro || d.thiaguinhoBrain || {},
-    templates: d.templates || d.modelosDocumentos || {}
+    templates: d.templates || d.modelosDocumentos || {},
+    integracoes
   };
 }
 

@@ -598,10 +598,13 @@
     const total = calcTotaisNF().totalFiscal;
     const dups = [];
     const baseDate = new Date(base + 'T12:00:00');
+    let acumulado = 0;
     for(let i=0;i<n;i++){
       const d = new Date(baseDate); d.setMonth(d.getMonth()+i);
       const iso = d.toISOString().slice(0,10);
-      dups.push({ numero:String(i+1).padStart(3,'0'), vencimento:iso, valor: Math.round((total/n)*100)/100 });
+      const valor = i === n - 1 ? Math.round((total - acumulado) * 100) / 100 : Math.round((total/n)*100)/100;
+      acumulado = Math.round((acumulado + valor) * 100) / 100;
+      dups.push({ numero:String(i+1).padStart(3,'0'), vencimento:iso, valor });
     }
     renderParcels(dups);
   }
@@ -1252,14 +1255,27 @@
     });
     return out;
   }
-  function osTemFluxoCiliaOuOficialNF(os){
-    const pecas = Array.isArray(os?.pecas) ? os.pecas : [];
-    const servicos = Array.isArray(os?.servicos) ? os.servicos : [];
-    const temCilia = pecas.some(p => p && (p.origem === 'cilia' || p.ciliaImportado === true || p.ciliaPieceIndex !== undefined || p.ciliaGrupo || p.ciliaAgrupador)) ||
-      servicos.some(s => s && (s.origemServico === 'cilia_tabela_tempa' || s.origemServico === 'cilia_tabela_tempa_editado' || s.ciliaPieceIndex !== undefined));
-    if (temCilia) return true;
+  function osClienteOficialNF(os){
+    // Regra cirúrgica: orçamento importado/Cília NÃO torna cliente oficial.
+    // Cliente comum com Cília ou PDF continua recebendo peça da NF em Peças da O.S.
     const cliente = (W.J?.clientes || []).find(c => String(c.id) === String(os?.clienteId || os?.cliente || '')) || {};
-    return !!(os?.clienteOficial || os?.orgaoPublico || os?.gov || cliente.clienteOficial || cliente.orgaoPublico || cliente.publico || cliente.gov);
+    const nomeCliente = String(cliente.nome || os?.clienteNome || os?.cliente || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!nomeCliente || nomeCliente === 'CONSUMIDOR') return false;
+    const tipoCliente = String(cliente.tipoCliente || os?.tipoCliente || os?.clienteTipo || '').toLowerCase();
+    if (tipoCliente === 'governo' || tipoCliente === 'oficial') return true;
+    const raw = JSON.stringify({
+      osClienteOficial: os?.clienteOficial,
+      osOrgaoPublico: os?.orgaoPublico,
+      osGov: os?.gov,
+      osFiscalContrato: os?.fiscalContrato,
+      osContrato: os?.contrato,
+      clienteOficial: cliente.clienteOficial,
+      clienteOrgaoPublico: cliente.orgaoPublico,
+      clientePublico: cliente.publico,
+      clienteGov: cliente.gov,
+      clienteTipo: cliente.tipoCliente
+    }).toUpperCase();
+    return /OFICIAL|GOVERNO|PMSP|POLICIA|POLÍCIA|MILITAR|BPM|PREFEITURA|ESTADO|MUNICIP|SECRETARIA/.test(raw);
   }
   function pecaOrcamentoFromNF(pecaReal){
     const desc = pecaReal.desc || pecaReal.descricao || '';
@@ -1284,6 +1300,25 @@
       origemNFVinculada: true
     });
   }
+
+  function keyPecaOrcamentoNF(p){
+    return normalizeTextNF(p?.origemNFItemKey || [p?.nfId || p?.nf || '', p?.codigo || p?.codigoComercial || p?.codigoFornecedor || '', p?.desc || p?.descricao || '', p?.qtd || ''].join('|'));
+  }
+  function pecasOcultasOSNF(os){
+    const out = [];
+    [os?.pecasReaisOcultasNaOS, os?.pecasNFRemovidasDaOS, os?.pecasOcultasNaOS, os?.pecasOSOcultas].forEach(lista => {
+      if (Array.isArray(lista)) lista.forEach(v => {
+        const k = normalizeTextNF(typeof v === 'string' ? v : (v?.key || v?.chave || v?.origemNFItemKey || v?.nfItemKey || ''));
+        if (k && !out.includes(k)) out.push(k);
+      });
+    });
+    return out;
+  }
+  function pecaOrcamentoOcultaOSNF(os, p){
+    const k = keyPecaOrcamentoNF(p);
+    return !!(k && pecasOcultasOSNF(os).includes(k));
+  }
+
   function mergePecasOrcamentoNF(atuais, novas){
     const out = Array.isArray(atuais) ? atuais.slice() : [];
     const keyOf = p => p?.origemNFItemKey || [p?.nfId || p?.nf || '', p?.codigo || '', p?.desc || p?.descricao || '', p?.qtd || ''].join('|');
@@ -1301,6 +1336,28 @@
     });
     return out;
   }
+  function refletirPecasNFNaOSTelaAtual(osId, pecas){
+    if (!$('osId') || String($('osId').value || '') !== String(osId || '')) return;
+    if (!$('containerPecasOS') || typeof W.renderPecaOSRow !== 'function') return;
+    const chavesTela = new Set(Array.from(D.querySelectorAll('#containerPecasOS [data-origem-n-f-item-key], #containerPecasOS [data-origem-nf-item-key]')).map(el => el.dataset?.origemNFItemKey || el.dataset?.origemNFItemkey || '').filter(Boolean));
+    Array.from(D.querySelectorAll('#containerPecasOS > div')).forEach(row => {
+      const k = row.dataset?.origemNFItemKey || row.dataset?.origemNfItemKey || '';
+      if (k) chavesTela.add(k);
+    });
+    (Array.isArray(pecas) ? pecas : []).forEach(real => {
+      const visivel = pecaOrcamentoFromNF(real);
+      if (!visivel) return;
+      const osAtual = (W.J?.os || []).find(o => String(o.id) === String(osId || '')) || {};
+      if (pecaOrcamentoOcultaOSNF(osAtual, visivel)) return;
+      const key = visivel.origemNFItemKey || '';
+      if (key && chavesTela.has(key)) return;
+      W.renderPecaOSRow(visivel);
+      if (key) chavesTela.add(key);
+    });
+    W.calcOSTotal?.();
+  }
+  W.refletirPecasNFNaOSTelaAtual = refletirPecasNFNaOSTelaAtual;
+  W.refletirPecasNFNaOS = W.refletirPecasNFNaOS || refletirPecasNFNaOSTelaAtual;
   async function registrarPecasReaisOSNF(batch, itens, nfRef, nfPayload, fornecedorId, fornecedorNome){
     const porOS = new Map();
     const semDestino = [];
@@ -1342,8 +1399,8 @@
         ultimaEntradaNFVinculada: nfPayload.numero || nfRef.id
       };
       osUpdate.pecasReais = mergePecasReaisNF(entry.os.pecasReais, pecas);
-      if (!osTemFluxoCiliaOuOficialNF(entry.os)) {
-        const pecasOrcamento = pecas.map(pecaOrcamentoFromNF).filter(Boolean);
+      if (!osClienteOficialNF(entry.os)) {
+        const pecasOrcamento = pecas.map(pecaOrcamentoFromNF).filter(Boolean).filter(p => !pecaOrcamentoOcultaOSNF(entry.os, p));
         if (pecasOrcamento.length) osUpdate.pecas = mergePecasOrcamentoNF(entry.os.pecas, pecasOrcamento);
       }
       osUpdate.timeline = (Array.isArray(entry.os.timeline) ? entry.os.timeline.slice() : []).concat(evento);
@@ -1366,6 +1423,7 @@
         });
         W.atualizarResumoPecasReais177?.();
       }
+      if (!osClienteOficialNF(entry.os)) refletirPecasNFNaOSTelaAtual(osId, pecas);
     }
     return { os: porOS.size, pecas: totalPecas, registrosAuxiliares };
   }
@@ -1644,12 +1702,13 @@
         batch.set(W.db.collection('nf_itens_vinculos').doc(), cleanFirestoreNF({ tenantId:W.J.tid, nfId:nfRef.id, nfNumero:nfPayload.numero, chave:nfPayload.chave, fornecedorId, fornecedorNome, estoqueId, codigo:destItem.codigo||'', codigoFornecedor:destItem.codigoFornecedor||destItem.codigo||'', codigoComercial:destItem.codigoComercial||destItem.oem||'', ean:destItem.ean||'', desc:destItem.descricao, marca:destItem.marca||'', qtd:destItem.quantidade, quantidadeFiscal:item.quantidadeFiscal||item.quantidade||0, quantidadeOperacionalTotal:entradaQtd, fatorOperacional:item.fatorOperacional||1, destinoIndice:destItem.destinoIndice ?? 0, custo:destItem.valorUnitario, valorUnitarioFiscal:item.valorUnitario||0, desconto:item.desconto, total:destItem.valorLiquido, ncm:destItem.ncm||'', cest:destItem.cest||'', cfop:destItem.cfop||'', finalidade:destItem.destino||destItem.finalidade||'estoque', vinculo:destItem.vinculo||'', osId:destItem.osId||'', placa:destItem.placa||'', estoqueBaixadoAutomatico:vinculadoNaEntrada, createdAt:new Date().toISOString() }));
       }
     }
-    const parcelas = collectParcelas();
     const forma = getVal('nfPgtoForma') || 'Dinheiro';
     const formaNorm = formaPagamentoNFNorm(forma);
     const formaAVista = formaPagamentoNFAVista(forma);
     const formaAgrupamentoPeriodo = forma === 'AgrupamentoPeriodo' || formaNorm.includes('agrupamento');
     const formaPermiteParcelas = !formaAgrupamentoPeriodo && formaPagamentoNFParcelavel(forma);
+    if (formaPermiteParcelas && !formaAVista && !collectParcelas().length) gerarParcelasManuais();
+    const parcelas = collectParcelas();
     const parcelasFinanceiras = formaPermiteParcelas && !formaAVista ? parcelas : [];
     const statusFinanceiro = formaAVista ? 'Pago' : 'Pendente';
     if(formaAgrupamentoPeriodo){

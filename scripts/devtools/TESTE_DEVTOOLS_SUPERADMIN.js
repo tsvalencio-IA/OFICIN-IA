@@ -19,17 +19,16 @@
   ['allTenants','allAudit','allSaasFin'].forEach(n => ok('Array ' + n, String(arr(n).length)));
 
   [
-    'prepTenant','salvarTenant','montarValorIAConfig','mesclarCerebroSemSobrescrever',
+    'prepTenant','salvarTenant','mesclarCerebroSemSobrescrever',
     'importarCerebroGlobalArquivo','importarCerebroTenantArquivo','salvarConfigIA',
     'normalizarCerebroAdmin','validarCerebroTenant','testarCerebroLocal'
   ].forEach(n => fn(n) ? ok('Funcao ' + n) : fail('Funcao ' + n, 'Ausente'));
 
   [
-    'modalTenant','tBrainJsonFile','tBrainJsonRaw','iaBrainGlobalFile','iaBrainGlobalJson',
-    'tValorIAAtivo','tValorIATenantId','tValorIAFirebaseJson','tValorIAPublicBaseUrl'
+    'modalTenant','tBrainJsonFile','tBrainJsonRaw','iaBrainGlobalFile','iaBrainGlobalJson'
   ].forEach(id => has(id) ? ok('Elemento #' + id) : fail('Elemento #' + id, 'Ausente'));
 
-  ['SALVAR SEM FECHAR','SALVAR E CONTINUAR','SALVAR E FECHAR','INTEGRAÇÃO VALORIA'].forEach(txt => {
+  ['SALVAR SEM FECHAR','SALVAR E CONTINUAR','SALVAR E FECHAR'].forEach(txt => {
     html.includes(txt) ? ok('Texto UI: ' + txt) : fail('Texto UI: ' + txt, 'Nao encontrado no HTML');
   });
 
