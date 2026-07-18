@@ -1,7 +1,7 @@
 /**
  * JARVIS ERP — pdf.js
  * Laudo Técnico PDF profissional
- * Usa jsPDF + jsPDF-AutoTable + QR code via API do Google
+ * Usa jsPDF + jsPDF-AutoTable + QR code público opcional
  */
 
 'use strict';
